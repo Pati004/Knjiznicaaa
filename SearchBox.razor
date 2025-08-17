@@ -1,0 +1,510 @@
+﻿@using Microsoft.AspNetCore.Components.Web
+@using System.ComponentModel.DataAnnotations
+@inject IJSRuntime JSRuntime
+
+<div class="search-box @CssClass">
+    <div class="search-container @(IsExpanded ? "expanded" : "")">
+        <div class="search-input-wrapper">
+            <div class="search-icon">
+                <i class="fas fa-search"></i>
+            </div>
+
+            <input type="text"
+                   class="search-input @(HasFocus ? "focused" : "")"
+                   placeholder="@Placeholder"
+                   value="@SearchTerm"
+                   @oninput="OnSearchInput"
+                   @onkeypress="OnKeyPress"
+                   @onfocus="OnFocus"
+                   @onblur="OnBlur"
+                   @ref="searchInputRef" />
+
+            @if (!string.IsNullOrEmpty(SearchTerm))
+            {
+                <button class="clear-button" @onclick="ClearSearch" title="Počisti iskanje">
+                    <i class="fas fa-times"></i>
+                </button>
+            }
+
+            @if (ShowAdvancedToggle)
+            {
+                <button class="advanced-toggle @(ShowAdvanced ? "active" : "")"
+                        @onclick="ToggleAdvanced"
+                        title="Napredne možnosti">
+                    <i class="fas fa-sliders-h"></i>
+                </button>
+            }
+        </div>
+
+        @if (ShowSuggestions && Suggestions.Any())
+        {
+            <div class="suggestions-dropdown">
+                <div class="suggestions-header">
+                    <small class="text-muted">Predlogi:</small>
+                </div>
+                @foreach (var suggestion in Suggestions.Take(MaxSuggestions))
+                {
+                    <div class="suggestion-item" @onclick="() => SelectSuggestion(suggestion)">
+                        <i class="fas @GetSuggestionIcon(suggestion.Type) me-2"></i>
+                        <span class="suggestion-text">@suggestion.Text</span>
+                        @if (!string.IsNullOrEmpty(suggestion.Category))
+                        {
+                            <small class="suggestion-category">@suggestion.Category</small>
+                        }
+                    </div>
+                }
+            </div>
+        }
+
+        @if (ShowAdvanced)
+        {
+            <div class="advanced-options">
+                <div class="row g-2">
+                    @if (EnableDateRange)
+                    {
+                        <div class="col-md-6">
+                            <label class="form-label-sm">Od datuma:</label>
+                            <input type="date" class="form-control form-control-sm"
+                                   @bind="DateFrom" @bind:event="onchange" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label-sm">Do datuma:</label>
+                            <input type="date" class="form-control form-control-sm"
+                                   @bind="DateTo" @bind:event="onchange" />
+                        </div>
+                    }
+
+                    @if (EnableCategoryFilter && Categories.Any())
+                    {
+                        <div class="col-md-6">
+                            <label class="form-label-sm">Kategorija:</label>
+                            <select class="form-select form-select-sm"
+                                    @bind="SelectedCategory" @bind:event="onchange">
+                                <option value="">Vse kategorije</option>
+                                @foreach (var category in Categories)
+                                {
+                                    <option value="@category">@category</option>
+                                }
+                            </select>
+                        </div>
+                    }
+
+                    @if (EnableSortOptions)
+                    {
+                        <div class="col-md-6">
+                            <label class="form-label-sm">Razvrsti po:</label>
+                            <select class="form-select form-select-sm"
+                                    @bind="SortBy" @bind:event="onchange">
+                                <option value="relevance">Ustreznost</option>
+                                <option value="name">Imenu</option>
+                                <option value="date">Datumu</option>
+                                <option value="popularity">Priljubljenost</option>
+                            </select>
+                        </div>
+                    }
+                </div>
+
+                <div class="advanced-actions mt-2">
+                    <button class="btn btn-sm btn-outline-primary" @onclick="ApplyAdvancedSearch">
+                        <i class="fas fa-search"></i> Iskanje
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="ResetAdvanced">
+                        <i class="fas fa-undo"></i> Ponastavi
+                    </button>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public string SearchTerm { get; set; } = string.Empty;
+    [Parameter] public string Placeholder { get; set; } = "Išči...";
+    [Parameter] public string CssClass { get; set; } = string.Empty;
+    [Parameter] public bool ShowSuggestions { get; set; } = true;
+    [Parameter] public bool ShowAdvancedToggle { get; set; } = true;
+    [Parameter] public bool EnableDateRange { get; set; } = true;
+    [Parameter] public bool EnableCategoryFilter { get; set; } = true;
+    [Parameter] public bool EnableSortOptions { get; set; } = true;
+    [Parameter] public int MaxSuggestions { get; set; } = 5;
+    [Parameter] public int DebounceMs { get; set; } = 300;
+    [Parameter] public List<SearchSuggestion> Suggestions { get; set; } = new();
+    [Parameter] public List<string> Categories { get; set; } = new();
+    [Parameter] public EventCallback<string> OnSearch { get; set; }
+    [Parameter] public EventCallback<AdvancedSearchParams> OnAdvancedSearch { get; set; }
+    [Parameter] public EventCallback<SearchSuggestion> OnSuggestionSelected { get; set; }
+
+    private ElementReference searchInputRef;
+    private bool HasFocus = false;
+    private bool IsExpanded = false;
+    private bool ShowAdvanced = false;
+    private Timer? debounceTimer;
+
+    // Advanced search parameters
+    private DateTime? DateFrom;
+    private DateTime? DateTo;
+    private string SelectedCategory = string.Empty;
+    private string SortBy = "relevance";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await JSRuntime.InvokeVoidAsync("initializeSearchBox", searchInputRef);
+        }
+    }
+
+    private void OnSearchInput(ChangeEventArgs e)
+    {
+        SearchTerm = e.Value?.ToString() ?? string.Empty;
+
+        debounceTimer?.Dispose();
+        debounceTimer = new Timer(async _ =>
+        {
+            await InvokeAsync(async () =>
+            {
+                await OnSearch.InvokeAsync(SearchTerm);
+                StateHasChanged();
+            });
+        }, null, DebounceMs, Timeout.Infinite);
+    }
+
+    private async Task OnKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            debounceTimer?.Dispose();
+            await OnSearch.InvokeAsync(SearchTerm);
+        }
+        else if (e.Key == "Escape")
+        {
+            await ClearSearch();
+            await searchInputRef.FocusAsync();
+        }
+    }
+
+    private void OnFocus()
+    {
+        HasFocus = true;
+        IsExpanded = true;
+    }
+
+    private void OnBlur()
+    {
+        HasFocus = false;
+        // Delay hiding suggestions to allow for clicks
+        Task.Delay(200).ContinueWith(_ =>
+        {
+            InvokeAsync(() =>
+            {
+                IsExpanded = false;
+                StateHasChanged();
+            });
+        });
+    }
+
+    private async Task ClearSearch()
+    {
+        SearchTerm = string.Empty;
+        await OnSearch.InvokeAsync(SearchTerm);
+    }
+
+    private void ToggleAdvanced()
+    {
+        ShowAdvanced = !ShowAdvanced;
+    }
+
+    private async Task SelectSuggestion(SearchSuggestion suggestion)
+    {
+        SearchTerm = suggestion.Text;
+        await OnSuggestionSelected.InvokeAsync(suggestion);
+        await OnSearch.InvokeAsync(SearchTerm);
+        IsExpanded = false;
+    }
+
+    private async Task ApplyAdvancedSearch()
+    {
+        var advancedParams = new AdvancedSearchParams
+            {
+                SearchTerm = SearchTerm,
+                DateFrom = DateFrom,
+                DateTo = DateTo,
+                Category = SelectedCategory,
+                SortBy = SortBy
+            };
+
+        await OnAdvancedSearch.InvokeAsync(advancedParams);
+        ShowAdvanced = false;
+    }
+
+    private void ResetAdvanced()
+    {
+        DateFrom = null;
+        DateTo = null;
+        SelectedCategory = string.Empty;
+        SortBy = "relevance";
+    }
+
+    private string GetSuggestionIcon(string type)
+    {
+        return type.ToLower() switch
+        {
+            "book" => "fa-book",
+            "author" => "fa-user",
+            "category" => "fa-tag",
+            "isbn" => "fa-barcode",
+            _ => "fa-search"
+        };
+    }
+
+    public class SearchSuggestion
+    {
+        public string Text { get; set; } = string.Empty;
+        public string Type { get; set; } = string.Empty;
+        public string Category { get; set; } = string.Empty;
+        public object? Data { get; set; }
+    }
+
+    public class AdvancedSearchParams
+    {
+        public string SearchTerm { get; set; } = string.Empty;
+        public DateTime? DateFrom { get; set; }
+        public DateTime? DateTo { get; set; }
+        public string Category { get; set; } = string.Empty;
+        public string SortBy { get; set; } = "relevance";
+    }
+
+    public void Dispose()
+    {
+        debounceTimer?.Dispose();
+    }
+}
+
+<style>
+    .search-box {
+        position: relative;
+        width: 100%;
+    }
+
+    .search-container {
+        position: relative;
+        background: white;
+        border-radius: 0.5rem;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        transition: all 0.3s ease;
+    }
+
+        .search-container.expanded {
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+        }
+
+    .search-input-wrapper {
+        position: relative;
+        display: flex;
+        align-items: center;
+    }
+
+    .search-icon {
+        position: absolute;
+        left: 1rem;
+        color: #6b7280;
+        z-index: 2;
+        transition: color 0.2s ease;
+    }
+
+    .search-input {
+        width: 100%;
+        border: 2px solid #e5e7eb;
+        border-radius: 0.5rem;
+        padding: 0.75rem 1rem 0.75rem 2.5rem;
+        font-size: 1rem;
+        transition: all 0.2s ease;
+        background: white;
+        outline: none;
+    }
+
+        .search-input.focused,
+        .search-input:focus {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+            .search-input.focused + .search-icon {
+                color: #3b82f6;
+            }
+
+    .clear-button,
+    .advanced-toggle {
+        position: absolute;
+        right: 0.5rem;
+        background: none;
+        border: none;
+        color: #6b7280;
+        padding: 0.5rem;
+        border-radius: 0.25rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        z-index: 2;
+    }
+
+    .advanced-toggle {
+        right: 2.5rem;
+    }
+
+        .clear-button:hover,
+        .advanced-toggle:hover {
+            background: #f3f4f6;
+            color: #374151;
+        }
+
+        .advanced-toggle.active {
+            background: #3b82f6;
+            color: white;
+        }
+
+    .suggestions-dropdown {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-top: none;
+        border-radius: 0 0 0.5rem 0.5rem;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        z-index: 1000;
+        max-height: 300px;
+        overflow-y: auto;
+    }
+
+    .suggestions-header {
+        padding: 0.5rem 1rem;
+        border-bottom: 1px solid #f3f4f6;
+        background: #f9fafb;
+    }
+
+    .suggestion-item {
+        padding: 0.75rem 1rem;
+        cursor: pointer;
+        border-bottom: 1px solid #f3f4f6;
+        transition: background-color 0.2s ease;
+        display: flex;
+        align-items: center;
+    }
+
+        .suggestion-item:hover {
+            background: #f3f4f6;
+        }
+
+        .suggestion-item:last-child {
+            border-bottom: none;
+        }
+
+    .suggestion-text {
+        flex: 1;
+    }
+
+    .suggestion-category {
+        color: #6b7280;
+        background: #f3f4f6;
+        padding: 0.125rem 0.5rem;
+        border-radius: 0.25rem;
+        margin-left: 0.5rem;
+    }
+
+    .advanced-options {
+        padding: 1rem;
+        border-top: 1px solid #e5e7eb;
+        background: #f9fafb;
+        border-radius: 0 0 0.5rem 0.5rem;
+    }
+
+    .form-label-sm {
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: #374151;
+        margin-bottom: 0.25rem;
+    }
+
+    .advanced-actions {
+        display: flex;
+        gap: 0.5rem;
+        justify-content: flex-end;
+    }
+
+    /* Mobile responsiveness */
+    @@media (max-width: 768px) {
+        .search-input
+
+    {
+        padding: 0.5rem 1rem 0.5rem 2.25rem;
+        font-size: 0.875rem;
+    }
+
+    .search-icon {
+        left: 0.75rem;
+    }
+
+    .clear-button,
+    .advanced-toggle {
+        right: 0.25rem;
+        padding: 0.375rem;
+    }
+
+    .advanced-toggle {
+        right: 2rem;
+    }
+
+    .advanced-options .row {
+        margin: 0;
+    }
+
+    .advanced-options .col-md-6 {
+        padding: 0.25rem;
+    }
+
+    }
+
+    /* Dark mode support */
+    @@media (prefers-color-scheme: dark) {
+        .search-container
+
+    {
+        background: #374151;
+    }
+
+    .search-input {
+        background: #374151;
+        border-color: #4b5563;
+        color: #f9fafb;
+    }
+
+        .search-input::placeholder {
+            color: #9ca3af;
+        }
+
+    .suggestions-dropdown {
+        background: #374151;
+        border-color: #4b5563;
+    }
+
+    .suggestions-header {
+        background: #4b5563;
+    }
+
+    .suggestion-item:hover {
+        background: #4b5563;
+    }
+
+    .suggestion-category {
+        background: #4b5563;
+        color: #d1d5db;
+    }
+
+    .advanced-options {
+        background: #4b5563;
+        border-color: #6b7280;
+    }
+
+    }
+</style>

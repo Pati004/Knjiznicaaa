@@ -1,0 +1,40 @@
+﻿@using Microsoft.AspNetCore.Components.Routing
+@using KnjiznicaBlazor.Components
+
+<Router AppAssembly="@typeof(App).Assembly">
+    <Found Context="routeData">
+        <RouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)" />
+        <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+    </Found>
+    <NotFound>
+        <PageTitle>Stran ni najdena</PageTitle>
+        <LayoutView Layout="@typeof(MainLayout)">
+            <div class="container-fluid">
+                <div class="row justify-content-center">
+                    <div class="col-md-6">
+                        <div class="text-center mt-5">
+                            <div class="display-1 text-muted mb-4">
+                                <i class="fas fa-search"></i>
+                            </div>
+                            <h1 class="display-4 mb-3">404</h1>
+                            <h2 class="mb-4">Stran ni najdena</h2>
+                            <p class="lead mb-4">
+                                Oprostite, vendar iskana stran ne obstaja ali je bila premaknjena.
+                            </p>
+                            <div class="d-grid gap-2 d-md-flex justify-content-md-center">
+                                <a href="" class="btn btn-primary btn-lg">
+                                    <i class="fas fa-home"></i>
+                                    Nazaj na domačo stran
+                                </a>
+                                <button class="btn btn-outline-secondary btn-lg" onclick="history.back()">
+                                    <i class="fas fa-arrow-left"></i>
+                                    Nazaj
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </LayoutView>
+    </NotFound>
+</Router>

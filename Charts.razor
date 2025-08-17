@@ -1,0 +1,195 @@
+﻿@using KnjiznicaBlazor.Models
+@inject IJSRuntime JSRuntime
+
+<div class="row">
+    <!-- Kategorije knjig - Pie Chart -->
+    <div class="col-lg-6 mb-4">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">📊 Distribucija po kategorijah</h5>
+                <span class="badge bg-info">@TotalBooks knjig</span>
+            </div>
+            <div class="card-body">
+                <div class="chart-container">
+                    <canvas id="categoryChart" style="height: 300px;"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Avtorji po produktivnosti - Bar Chart -->
+    <div class="col-lg-6 mb-4">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">👨‍💼 Najprodukivnejši avtorji</h5>
+                <span class="badge bg-success">@TotalAuthors avtorjev</span>
+            </div>
+            <div class="card-body">
+                <div class="chart-container">
+                    <canvas id="authorChart" style="height: 300px;"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Knjige po dekadah - Line Chart -->
+    <div class="col-lg-6 mb-4">
+        <div class="card h-100">
+            <div class="card-header">
+                <h5 class="mb-0">📈 Trend izdajanja knjig po dekadah</h5>
+            </div>
+            <div class="card-body">
+                <div class="chart-container">
+                    <canvas id="decadeChart" style="height: 300px;"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Starostne skupine avtorjev - Donut Chart -->
+    <div class="col-lg-6 mb-4">
+        <div class="card h-100">
+            <div class="card-header">
+                <h5 class="mb-0">🎂 Starostne skupine avtorjev</h5>
+            </div>
+            <div class="card-body">
+                <div class="chart-container">
+                    <canvas id="ageGroupChart" style="height: 300px;"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public List<Knjiga> Books { get; set; } = new();
+    [Parameter] public List<Avtor> Authors { get; set; } = new();
+    [Parameter] public List<Kategorija> Categories { get; set; } = new();
+
+    private int TotalBooks => Books.Count;
+    private int TotalAuthors => Authors.Count;
+    private int TotalCategories => Categories.Count;
+    private int AverageAge => Authors.Any() ? (int)Authors.Average(a => a.Starost) : 0;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && Books.Any())
+        {
+            await CreateCharts();
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Books.Any())
+        {
+            await CreateCharts();
+        }
+    }
+
+    private async Task CreateCharts()
+    {
+        await CreateCategoryChart();
+        await CreateAuthorChart();
+        await CreateDecadeChart();
+        await CreateAgeGroupChart();
+    }
+
+    private async Task CreateCategoryChart()
+    {
+        var categoryData = Categories.Select(c => new
+        {
+            name = c.Ime,
+            count = Books.Count(b => b.KategorijaId == c.Id)
+        }).Where(x => x.count > 0).ToList();
+
+        if (categoryData.Any())
+        {
+            await JSRuntime.InvokeVoidAsync("createPieChart", "categoryChart", categoryData, "Distribucija knjig po kategorijah");
+        }
+    }
+
+    private async Task CreateAuthorChart()
+    {
+        var authorData = Authors
+            .Select(a => new
+            {
+                name = a.PolnoIme.Length > 15 ? a.PolnoIme.Substring(0, 15) + "..." : a.PolnoIme,
+                count = Books.Count(b => b.AvtorId == a.Id)
+            })
+            .Where(x => x.count > 0)
+            .OrderByDescending(x => x.count)
+            .Take(10)
+            .ToList();
+
+        if (authorData.Any())
+        {
+            await JSRuntime.InvokeVoidAsync("createBarChart", "authorChart", authorData, "Top 10 avtorjev po številu knjig");
+        }
+    }
+
+    private async Task CreateDecadeChart()
+    {
+        var decadeData = Books
+            .GroupBy(b => (b.DatumIzdaje.Year / 10) * 10)
+            .Select(g => new
+            {
+                decade = $"{g.Key}s",
+                count = g.Count()
+            })
+            .OrderBy(x => x.decade)
+            .ToList();
+
+        if (decadeData.Any())
+        {
+            await JSRuntime.InvokeVoidAsync("createLineChart", "decadeChart", decadeData, "Trend izdajanja knjig po dekadah");
+        }
+    }
+
+    private async Task CreateAgeGroupChart()
+    {
+        var ageGroups = Authors
+            .GroupBy(a => GetAgeGroup(a.Starost))
+            .Select(g => new
+            {
+                name = g.Key,
+                count = g.Count()
+            })
+            .OrderBy(x => GetAgeGroupOrder(x.name))
+            .ToList();
+
+        if (ageGroups.Any())
+        {
+            await JSRuntime.InvokeVoidAsync("createDonutChart", "ageGroupChart", ageGroups, "Starostne skupine avtorjev");
+        }
+    }
+
+    private string GetAgeGroup(int age)
+    {
+        if (age < 30)
+            return "20-29 let";
+
+        if (age >= 70)
+            return "70+ let";
+
+        // izračunamo spodnjo mejo desetletja
+        int lower = (age / 10) * 10;
+        int upper = lower + 9;
+
+        return $"{lower}-{upper} let";
+    }
+
+    private int GetAgeGroupOrder(string ageGroup)
+    {
+        return ageGroup switch
+        {
+            "20-29 let" => 1,
+            "30-39 let" => 2,
+            "40-49 let" => 3,
+            "50-59 let" => 4,
+            "60-69 let" => 5,
+            "70+ let" => 6,
+            _ => 7
+        };
+    }
+}

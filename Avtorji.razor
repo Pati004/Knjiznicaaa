@@ -1,0 +1,885 @@
+﻿@page "/avtorji"
+@using KnjiznicaBlazor.Services
+@using KnjiznicaBlazor.Models
+@using Microsoft.AspNetCore.Components.Forms
+@using KnjiznicaBlazor.Components
+@inject KnjiznicaService KnjiznicaService
+@inject IJSRuntime JSRuntime
+@implements IDisposable
+
+<PageTitle>Avtorji</PageTitle>
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="display-6 fw-bold text-primary mb-2">👨‍💼 Avtorji</h1>
+            <p class="text-muted mb-0">Upravljanje avtorjev v knjižnici</p>
+        </div>
+        <button class="btn btn-primary btn-lg" @onclick="() => ShowModal(new Avtor())">
+            <i class="fas fa-plus me-2"></i> Dodaj avtorja
+        </button>
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <Alert Message="@errorMessage" Type="Alert.AlertType.Danger" OnDismiss="() => errorMessage = null" />
+    }
+
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <Alert Message="@successMessage" Type="Alert.AlertType.Success" OnDismiss="() => successMessage = null" />
+    }
+
+    <!-- Quick Statistics -->
+    @if (avtorji.Any())
+    {
+        <div class="mb-4">
+            <KnjiznicaBlazor.Components.QuickStats Stats="@GetQuickStats()"
+                                                   Title="Pregled avtorjev"
+                                                   Subtitle="Ključne statistike o avtorjih v knjižnici"
+                                                   UseAnimation="true"
+                                                   OnStatClicked="OnStatClicked" />
+        </div>
+    }
+
+    <!-- Enhanced Search Section -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0">🔍 Iskanje avtorjev</h5>
+        </div>
+        <div class="card-body">
+            <SearchBox SearchTerm="@globalSearchTerm"
+                       Placeholder="Išči po imenu, priimku ali emailu..."
+                       Suggestions="@searchSuggestions"
+                       OnSearch="OnGlobalSearch"
+                       OnSuggestionSelected="OnSuggestionSelected"
+                       ShowAdvancedToggle="false"
+                       EnableDateRange="false"
+                       EnableCategoryFilter="false"
+                       EnableSortOptions="false" />
+
+            <!-- Quick filters -->
+            <div class="d-flex flex-wrap gap-2 mt-3">
+                <span class="text-muted me-2">Hitre možnosti:</span>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => ApplyAgeFilter("young"))">
+                    <i class="fas fa-user-graduate me-1"></i> Mladi (&lt; 40)
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => ApplyAgeFilter("middle"))">
+                    <i class="fas fa-user-tie me-1"></i> Srednji (40-60)
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => ApplyAgeFilter("senior"))">
+                    <i class="fas fa-user-clock me-1"></i> Starejši (> 60)
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" @onclick="@(() => ApplyFilter("productive"))">
+                    <i class="fas fa-star me-1"></i> Produktivni
+                </button>
+                <button class="btn btn-sm btn-outline-danger" @onclick="ClearAllFilters">
+                    <i class="fas fa-times me-1"></i> Počisti
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @if (loading)
+    {
+        <LoadingSpinner IsLoading="true"
+                        LoadingText="Nalaganje avtorjev..."
+                        SpinnerType="dots"
+                        ShowProgress="false" />
+    }
+    else
+    {
+        <!-- Results summary and sorting -->
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+                <span class="text-muted">
+                    Prikazuje @filteredAvtorji.Count od @avtorji.Count avtorjev
+                    @if (!string.IsNullOrEmpty(globalSearchTerm))
+                    {
+                        <span>za "<strong>@globalSearchTerm</strong>"</span>
+                    }
+                </span>
+            </div>
+
+            <div class="d-flex align-items-center gap-2">
+                <label class="form-label mb-0 me-2">Razvrsti:</label>
+                <select class="form-select form-select-sm" style="width: auto;"
+                        @onchange="OnSortChanged">
+                    <option value="name">Po imenu</option>
+                    <option value="surname">Po priimku</option>
+                    <option value="age">Po starosti</option>
+                    <option value="books">Po številu knjig</option>
+                    <option value="email">Po emailu</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-body p-0">
+                <DataTable TItem="Avtor"
+                           Items="GetPagedItems()"
+                           Columns="tableColumns"
+                           ShowActions="true"
+                           EmptyMessage="Ni avtorjev za prikaz."
+                           OnEdit="ShowModal"
+                           OnDelete="DeleteAvtor" />
+            </div>
+
+            @if (filteredAvtorji.Count > pageSize)
+            {
+                <div class="card-footer bg-light">
+                    <Pagination CurrentPage="@currentPage"
+                                PageSize="@pageSize"
+                                TotalItems="@filteredAvtorji.Count"
+                                OnPageChanged="OnPageChanged"
+                                OnPageSizeChanged="OnPageSizeChanged"
+                                ShowQuickJump="true" />
+                </div>
+            }
+        </div>
+    }
+</div>
+
+<!-- Enhanced Modal for Add/Edit -->
+@if (showModal)
+{
+    <div class="modal fade show" style="display: block;" aria-modal="true" role="dialog">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title">
+                        <i class="fas @(selectedAvtor.Id == 0 ? "fa-user-plus" : "fa-user-edit") me-2"></i>
+                        @(selectedAvtor.Id == 0 ? "Dodaj novega avtorja" : "Uredi avtorja")
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseModal"></button>
+                </div>
+                <div class="modal-body">
+                    @if (loadingModal)
+                    {
+                        <LoadingSpinner IsLoading="true"
+                                        LoadingText="Nalaganje podatkov..."
+                                        SpinnerType="pulse" />
+                    }
+                    else
+                    {
+                        <EditForm Model="selectedAvtor" OnValidSubmit="SaveAvtor">
+                            <DataAnnotationsValidator />
+                            <ValidationSummary class="alert alert-danger" />
+
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label">Ime *</label>
+                                    <InputText class="form-control" @bind-Value="selectedAvtor.Ime"
+                                               placeholder="Vnesite ime avtorja" />
+                                    <ValidationMessage For="@(() => selectedAvtor.Ime)" />
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label">Priimek *</label>
+                                    <InputText class="form-control" @bind-Value="selectedAvtor.Priimek"
+                                               placeholder="Vnesite priimek avtorja" />
+                                    <ValidationMessage For="@(() => selectedAvtor.Priimek)" />
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label">Datum rojstva *</label>
+                                    <InputDate TValue="DateTime" class="form-control" @bind-Value="selectedAvtor.DatumRojstva" />
+                                    <ValidationMessage For="@(() => selectedAvtor.DatumRojstva)" />
+                                    @if (selectedAvtor.DatumRojstva != default)
+                                    {
+                                        <small class="text-muted">Starost: @CalculateAge(selectedAvtor.DatumRojstva) let</small>
+                                    }
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label">Email *</label>
+                                    <div class="input-group">
+                                        <InputText class="form-control" @bind-Value="selectedAvtor.Email"
+                                                   placeholder="ime.priimek@email.com" @oninput="OnEmailInput" />
+                                        <button class="btn btn-outline-secondary" type="button"
+                                                @onclick="ValidateEmail" title="Preveri email">
+                                            <i class="fas fa-check"></i>
+                                        </button>
+                                    </div>
+                                    <ValidationMessage For="@(() => selectedAvtor.Email)" />
+                                    @if (!string.IsNullOrEmpty(emailValidationMessage))
+                                    {
+                                        <small class="@(emailValid ? "text-success" : "text-danger")">
+                                            <i class="fas @(emailValid ? "fa-check" : "fa-times") me-1"></i>
+                                            @emailValidationMessage
+                                        </small>
+                                    }
+                                </div>
+
+                                <div class="col-12">
+                                    <label class="form-label">Biografija</label>
+                                    <InputTextArea class="form-control" rows="4" @bind-Value="selectedAvtor.Biografija"
+                                                   placeholder="Kratka biografija avtorja (opcijsko)"
+                                                   @oninput="OnBiographyInput" />
+                                    <ValidationMessage For="@(() => selectedAvtor.Biografija)" />
+                                    <div class="d-flex justify-content-between mt-1">
+                                        <small class="text-muted">Maksimalno 1000 znakov</small>
+                                        <small class="text-muted">@(selectedAvtor.Biografija?.Length ?? 0) / 1000</small>
+                                    </div>
+                                </div>
+
+                                @if (selectedAvtor.Id > 0)
+                                {
+                                    <div class="col-12">
+                                        <div class="alert alert-info">
+                                            <h6>📊 Statistike avtorja</h6>
+                                            <div class="row text-center">
+                                                <div class="col-md-4">
+                                                    <strong>@selectedAvtor.Knjige.Count</strong><br>
+                                                    <small>Objavljenih knjig</small>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <strong>@selectedAvtor.Starost</strong><br>
+                                                    <small>Let starosti</small>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <strong>@GetCareerYears(selectedAvtor)</strong><br>
+                                                    <small>Let kariere</small>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" @onclick="CloseModal">
+                                    <i class="fas fa-times me-1"></i> Prekliči
+                                </button>
+                                <button type="submit" class="btn btn-primary" disabled="@savingData">
+                                    @if (savingData)
+                                    {
+                                        <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                    }
+                                    <i class="fas fa-save me-1"></i> Shrani
+                                </button>
+                            </div>
+                        </EditForm>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
+<!-- Confirm Dialog -->
+<KnjiznicaBlazor.Components.ConfirmDialog @ref="confirmDialog" />
+
+@code {
+    private List<Avtor> avtorji = new();
+    private List<Avtor> filteredAvtorji = new();
+    private List<DataTable<Avtor>.TableColumn<Avtor>> tableColumns = new();
+    private List<SearchBox.SearchSuggestion> searchSuggestions = new();
+
+    private bool loading = true;
+    private bool loadingModal = false;
+    private bool savingData = false;
+    private bool showModal = false;
+    private Avtor selectedAvtor = new();
+    private string? errorMessage;
+    private string? successMessage;
+
+    // Search and filtering
+    private string globalSearchTerm = "";
+    private string sortBy = "name";
+    private string currentFilter = "";
+
+    // Pagination
+    private int currentPage = 1;
+    private int pageSize = 10;
+
+    // Email validation
+    private string emailValidationMessage = "";
+    private bool emailValid = false;
+
+    // Confirm dialog reference
+    private KnjiznicaBlazor.Components.ConfirmDialog? confirmDialog;
+
+    private Timer? searchTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        InitializeTableColumns();
+        await LoadAvtorji();
+    }
+
+    private void InitializeTableColumns()
+    {
+        tableColumns = new List<DataTable<Avtor>.TableColumn<Avtor>>
+        {
+            new() {
+                Header = "Ime",
+                Template = avtor => @<text>
+        <div class="d-flex align-items-center">
+            <div class="avatar-circle me-3">
+                @GetInitials(avtor.Ime, avtor.Priimek)
+            </div>
+            <div>
+                <strong class="text-primary">@avtor.PolnoIme</strong>
+                <br>
+                <small class="text-muted">@avtor.Starost let</small>
+            </div>
+        </div>
+    </text>
+            },
+            new() {
+                Header = "Email",
+                Template = avtor => @<text>
+        <div>
+            @avtor.Email
+            <button class="btn btn-sm btn-outline-secondary ms-1"
+                    @onclick="() => CopyToClipboard(avtor.Email)"
+                    title="Kopiraj email">
+                <i class="fas fa-copy"></i>
+            </button>
+        </div>
+    </text>
+            },
+            new() {
+                Header = "Datum rojstva",
+                Template = avtor => @<text>
+        @avtor.DatumRojstva.ToString("dd.MM.yyyy")
+    </text>
+            },
+            new() {
+                Header = "Število knjig",
+                Template = avtor => @<text>
+        <span class="badge @GetBookCountBadgeClass(avtor.Knjige.Count)">
+            @avtor.Knjige.Count
+        </span>
+    </text>
+            },
+            new() {
+                Header = "Biografija",
+                Template = avtor => @<text>
+        @if (!string.IsNullOrEmpty(avtor.Biografija))
+    {
+    var shortBio = avtor.Biografija.Length > 50 ? avtor.Biografija.Substring(0, 50) + "..." : avtor.Biografija;
+        <span title="@avtor.Biografija">@shortBio</span>
+    }
+    else
+    {
+        <em class="text-muted">Ni biografije</em>
+    }
+    </text>
+            }
+        };
+    }
+
+    private List<KnjiznicaBlazor.Components.QuickStats.StatItem> GetQuickStats()
+    {
+        var totalAuthors = avtorji.Count;
+        var avgAge = avtorji.Any() ? (int)avtorji.Average(a => a.Starost) : 0;
+        var productiveAuthors = avtorji.Count(a => a.Knjige.Count > 0);
+        var youngestAuthor = avtorji.Any() ? avtorji.Min(a => a.Starost) : 0;
+        var oldestAuthor = avtorji.Any() ? avtorji.Max(a => a.Starost) : 0;
+
+        return new List<KnjiznicaBlazor.Components.QuickStats.StatItem>
+        {
+            new()
+            {
+                Label = "Skupaj avtorjev",
+                Value = totalAuthors,
+                Icon = "fas fa-users",
+                Type = KnjiznicaBlazor.Components.QuickStats.StatType.Primary,
+                IsClickable = true,
+                Data = "total"
+            },
+            new()
+            {
+                Label = "Povprečna starost",
+                Value = avgAge,
+                Icon = "fas fa-birthday-cake",
+                Type = KnjiznicaBlazor.Components.QuickStats.StatType.Info,
+                Subtitle = $"Od {youngestAuthor} do {oldestAuthor} let"
+            },
+            new()
+            {
+                Label = "S knjigami",
+                Value = productiveAuthors,
+                Icon = "fas fa-book-open",
+                Type = KnjiznicaBlazor.Components.QuickStats.StatType.Success,
+                ShowProgress = true,
+                ProgressMax = totalAuthors,
+                IsClickable = true,
+                Data = "productive"
+            },
+            new()
+            {
+                Label = "Brez knjig",
+                Value = totalAuthors - productiveAuthors,
+                Icon = "fas fa-user-slash",
+                Type = KnjiznicaBlazor.Components.QuickStats.StatType.Warning,
+                IsClickable = true,
+                Data = "inactive"
+            }
+        };
+    }
+
+    private async Task LoadAvtorji()
+    {
+        try
+        {
+            loading = true;
+            errorMessage = null;
+            StateHasChanged();
+
+            avtorji = await KnjiznicaService.GetAvtorjiAsync();
+            ApplyFilters();
+            GenerateSearchSuggestions();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Napaka pri nalaganju avtorjev: {ex.Message}";
+        }
+        finally
+        {
+            loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ApplyFilters()
+    {
+        filteredAvtorji = avtorji.Where(a =>
+            (string.IsNullOrEmpty(globalSearchTerm) ||
+             a.Ime.Contains(globalSearchTerm, StringComparison.OrdinalIgnoreCase) ||
+             a.Priimek.Contains(globalSearchTerm, StringComparison.OrdinalIgnoreCase) ||
+             a.Email.Contains(globalSearchTerm, StringComparison.OrdinalIgnoreCase)) &&
+
+            (string.IsNullOrEmpty(currentFilter) ||
+             (currentFilter == "young" && a.Starost < 40) ||
+             (currentFilter == "middle" && a.Starost >= 40 && a.Starost <= 60) ||
+             (currentFilter == "senior" && a.Starost > 60) ||
+             (currentFilter == "productive" && a.Knjige.Count > 0))
+        ).ToList();
+
+        ApplySorting();
+        currentPage = 1;
+    }
+
+    private void ApplySorting()
+    {
+        filteredAvtorji = sortBy switch
+        {
+            "surname" => filteredAvtorji.OrderBy(a => a.Priimek).ToList(),
+            "age" => filteredAvtorji.OrderBy(a => a.Starost).ToList(),
+            "books" => filteredAvtorji.OrderByDescending(a => a.Knjige.Count).ToList(),
+            "email" => filteredAvtorji.OrderBy(a => a.Email).ToList(),
+            _ => filteredAvtorji.OrderBy(a => a.Ime).ToList()
+        };
+    }
+
+    private void GenerateSearchSuggestions()
+    {
+        searchSuggestions.Clear();
+
+        // Add author names
+        searchSuggestions.AddRange(avtorji.Take(8).Select(a => new SearchBox.SearchSuggestion
+            {
+                Text = a.PolnoIme,
+                Type = "author",
+                Category = "Avtor"
+            }));
+
+        // Add email domains
+        var domains = avtorji.Select(a => a.Email.Split('@').LastOrDefault())
+            .Where(d => !string.IsNullOrEmpty(d))
+            .GroupBy(d => d)
+            .OrderByDescending(g => g.Count())
+            .Take(3)
+            .Select(g => g.Key);
+
+        searchSuggestions.AddRange(domains.Select(d => new SearchBox.SearchSuggestion
+            {
+                Text = "@" + d,
+                Type = "email",
+                Category = "Domena"
+            }));
+    }
+
+    private List<Avtor> GetPagedItems()
+    {
+        var skip = (currentPage - 1) * pageSize;
+        return filteredAvtorji.Skip(skip).Take(pageSize).ToList();
+    }
+
+    private int CalculateAge(DateTime birthDate)
+    {
+        var today = DateTime.Today;
+        var age = today.Year - birthDate.Year;
+        if (birthDate.Date > today.AddYears(-age)) age--;
+        return age;
+    }
+
+    private string GetInitials(string firstName, string lastName)
+    {
+        var first = !string.IsNullOrEmpty(firstName) ? firstName[0].ToString().ToUpper() : "";
+        var last = !string.IsNullOrEmpty(lastName) ? lastName[0].ToString().ToUpper() : "";
+        return first + last;
+    }
+
+    private string GetBookCountBadgeClass(int count)
+    {
+        return count switch
+        {
+            0 => "bg-secondary",
+            1 => "bg-warning text-dark",
+            < 5 => "bg-info",
+            _ => "bg-success"
+        };
+    }
+
+    private int GetCareerYears(Avtor avtor)
+    {
+        if (!avtor.Knjige.Any()) return 0;
+        var firstBook = avtor.Knjige.Min(k => k.DatumIzdaje);
+        return DateTime.Now.Year - firstBook.Year;
+    }
+
+    // Event handlers
+    private async Task OnGlobalSearch(string searchTerm)
+    {
+        globalSearchTerm = searchTerm;
+        searchTimer?.Dispose();
+        searchTimer = new Timer(async _ => await InvokeAsync(() =>
+        {
+            ApplyFilters();
+            StateHasChanged();
+        }), null, 300, Timeout.Infinite);
+    }
+
+    private async Task OnSuggestionSelected(SearchBox.SearchSuggestion suggestion)
+    {
+        globalSearchTerm = suggestion.Text;
+        ApplyFilters();
+        StateHasChanged();
+    }
+
+    private async Task OnSortChanged(ChangeEventArgs e)
+    {
+        sortBy = e.Value?.ToString() ?? "name";
+        ApplySorting();
+        StateHasChanged();
+    }
+
+    private async Task OnPageChanged(int page)
+    {
+        currentPage = page;
+        StateHasChanged();
+    }
+
+    private async Task OnPageSizeChanged(int newPageSize)
+    {
+        pageSize = newPageSize;
+        currentPage = 1;
+        StateHasChanged();
+    }
+
+    private async Task OnStatClicked(KnjiznicaBlazor.Components.QuickStats.StatItem stat)
+    {
+        var filter = stat.Data?.ToString();
+        switch (filter)
+        {
+            case "total":
+                await ClearAllFilters();
+                break;
+            case "productive":
+                await ApplyFilter("productive");
+                break;
+            case "inactive":
+                currentFilter = "";
+                filteredAvtorji = avtorji.Where(a => a.Knjige.Count == 0).ToList();
+                currentPage = 1;
+                StateHasChanged();
+                break;
+        }
+    }
+
+    private async Task ApplyAgeFilter(string ageGroup)
+    {
+        currentFilter = ageGroup;
+        globalSearchTerm = "";
+        ApplyFilters();
+        StateHasChanged();
+
+        var message = ageGroup switch
+        {
+            "young" => "Prikazani so avtorji mlajši od 40 let",
+            "middle" => "Prikazani so avtorji med 40 in 60 let",
+            "senior" => "Prikazani so avtorji starejši od 60 let",
+            _ => "Filter uporabljen"
+        };
+
+        await JSRuntime.InvokeVoidAsync("showToast", message, "info");
+    }
+
+    private async Task ApplyFilter(string filterType)
+    {
+        currentFilter = filterType;
+        globalSearchTerm = "";
+        ApplyFilters();
+        StateHasChanged();
+
+        await JSRuntime.InvokeVoidAsync("showToast", "Filter uporabljen!", "success");
+    }
+
+    private async Task ClearAllFilters()
+    {
+        globalSearchTerm = "";
+        currentFilter = "";
+        sortBy = "name";
+        currentPage = 1;
+        ApplyFilters();
+        StateHasChanged();
+        await JSRuntime.InvokeVoidAsync("showToast", "Vsi filtri so bili počiščeni!", "info");
+    }
+
+    // Email validation
+    private async Task OnEmailInput(ChangeEventArgs e)
+    {
+        var email = e.Value?.ToString() ?? "";
+        if (email.Contains("@") && email.Contains("."))
+        {
+            await ValidateEmail();
+        }
+        else
+        {
+            emailValidationMessage = "";
+        }
+    }
+
+    private async Task ValidateEmail()
+    {
+        if (string.IsNullOrEmpty(selectedAvtor.Email))
+        {
+            emailValidationMessage = "";
+            return;
+        }
+
+        try
+        {
+            var addr = new System.Net.Mail.MailAddress(selectedAvtor.Email);
+            emailValid = addr.Address == selectedAvtor.Email;
+            emailValidationMessage = emailValid ? "Email je veljaven" : "Email ni veljaven";
+        }
+        catch
+        {
+            emailValid = false;
+            emailValidationMessage = "Email ni veljaven";
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task OnBiographyInput(ChangeEventArgs e)
+    {
+        var text = e.Value?.ToString() ?? "";
+        if (text.Length > 1000)
+        {
+            selectedAvtor.Biografija = text.Substring(0, 1000);
+            StateHasChanged();
+        }
+    }
+
+    private async Task CopyToClipboard(string text)
+    {
+        await JSRuntime.InvokeVoidAsync("copyToClipboard", text);
+    }
+
+    // Modal methods
+    private async Task ShowModal(Avtor avtor)
+    {
+        selectedAvtor = new Avtor
+            {
+                Id = avtor.Id,
+                Ime = avtor.Ime,
+                Priimek = avtor.Priimek,
+                DatumRojstva = avtor.DatumRojstva == default ? DateTime.Today.AddYears(-30) : avtor.DatumRojstva,
+                Email = avtor.Email,
+                Biografija = avtor.Biografija,
+                Knjige = avtor.Knjige
+            };
+
+        emailValidationMessage = "";
+        showModal = true;
+
+        if (avtor.Id > 0 && !string.IsNullOrEmpty(avtor.Email))
+        {
+            await ValidateEmail();
+        }
+    }
+
+    private void CloseModal()
+    {
+        showModal = false;
+        selectedAvtor = new();
+        errorMessage = null;
+        emailValidationMessage = "";
+    }
+
+    private async Task SaveAvtor()
+    {
+        try
+        {
+            savingData = true;
+            StateHasChanged();
+
+            if (selectedAvtor.Id == 0)
+            {
+                await KnjiznicaService.CreateAvtorAsync(selectedAvtor);
+                successMessage = "Avtor je bil uspešno dodan.";
+            }
+            else
+            {
+                await KnjiznicaService.UpdateAvtorAsync(selectedAvtor.Id, selectedAvtor);
+                successMessage = "Avtor je bil uspešno posodobljen.";
+            }
+
+            CloseModal();
+            await LoadAvtorji();
+            await JSRuntime.InvokeVoidAsync("showToast", successMessage, "success");
+        }
+        catch (HttpRequestException ex)
+        {
+            if (ex.Message.Contains("400"))
+            {
+                errorMessage = "Avtor s tem emailom že obstaja.";
+            }
+            else
+            {
+                errorMessage = $"Napaka pri shranjevanju avtorja: {ex.Message}";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Napaka pri shranjevanju avtorja: {ex.Message}";
+        }
+        finally
+        {
+            savingData = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DeleteAvtor(Avtor avtor)
+    {
+        if (confirmDialog != null)
+        {
+            confirmDialog.Title = "Potrditev brisanja";
+            confirmDialog.Message = $"Ali ste prepričani, da želite izbrisati avtorja {avtor.PolnoIme}?";
+            confirmDialog.Type = KnjiznicaBlazor.Components.ConfirmDialog.DialogType.Danger;
+            confirmDialog.ConfirmText = "Izbriši";
+            confirmDialog.Details = avtor.Knjige.Any()
+                ? $"Avtor ima {avtor.Knjige.Count} objavljenih knjig. Brisanje ne bo mogoče."
+                : "Ta akcija ne bo vplivala na obstoječe knjige.";
+            confirmDialog.ShowDetails = true;
+            confirmDialog.IsConfirmEnabled = !avtor.Knjige.Any();
+
+            confirmDialog.OnConfirm = EventCallback.Factory.Create(this, async () =>
+            {
+                try
+                {
+                    await KnjiznicaService.DeleteAvtorAsync(avtor.Id);
+                    successMessage = "Avtor je bil uspešno izbrisan.";
+                    await LoadAvtorji();
+                    await JSRuntime.InvokeVoidAsync("showToast", successMessage, "success");
+                }
+                catch (HttpRequestException ex)
+                {
+                    if (ex.Message.Contains("400"))
+                    {
+                        errorMessage = "Avtorja ne morete izbrisati, ker ima knjige.";
+                    }
+                    else
+                    {
+                        errorMessage = $"Napaka pri brisanju avtorja: {ex.Message}";
+                    }
+                    await JSRuntime.InvokeVoidAsync("showToast", errorMessage, "danger");
+                }
+                catch (Exception ex)
+                {
+                    errorMessage = $"Napaka pri brisanju avtorja: {ex.Message}";
+                    await JSRuntime.InvokeVoidAsync("showToast", errorMessage, "danger");
+                }
+            });
+
+            confirmDialog.Show();
+        }
+    }
+
+    public void Dispose()
+    {
+        searchTimer?.Dispose();
+    }
+}
+
+<style>
+    .avatar-circle {
+        width: 40px;
+        height: 40px;
+        background: linear-gradient(135deg, #3b82f6, #1e40af);
+        color: white;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 600;
+        font-size: 0.875rem;
+    }
+
+    .badge {
+        font-size: 0.8em;
+        padding: 0.4em 0.8em;
+    }
+
+    .table td {
+        vertical-align: middle;
+    }
+
+    .modal-dialog-centered {
+        min-height: calc(100% - 1rem);
+        display: flex;
+        align-items: center;
+    }
+
+    .form-control:focus,
+    .form-select:focus {
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.25);
+    }
+
+    .input-group .btn {
+        border-left: none;
+    }
+
+    @@media (max-width: 768px) {
+        .modal-dialog
+
+    {
+        margin: 0.5rem;
+    }
+
+    .table-responsive {
+        font-size: 0.875rem;
+    }
+
+    .avatar-circle {
+        width: 32px;
+        height: 32px;
+        font-size: 0.75rem;
+    }
+
+    .btn-group .btn {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.75rem;
+    }
+
+    }
+</style>

@@ -1,0 +1,500 @@
+﻿
+@using KnjiznicaBlazor.Services
+@using KnjiznicaBlazor.Models
+@using KnjiznicaBlazor.Components
+@inject KnjiznicaService KnjiznicaService
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Knjižnica - Dashboard</PageTitle>
+
+<div class="card-body">
+    <Charts Books="knjige" Authors="avtorji" Categories="kategorije" />
+</div>
+<!-- API Status indicator -->
+<div class="api-status-indicator @(apiHealthy ? "healthy" : "unhealthy")">
+    <i class="fas @(apiHealthy ? "fa-check-circle" : "fa-exclamation-triangle")"></i>
+    <span>API: @(apiHealthy ? "Povezan" : "Ni povezan")</span>
+    @if (!apiHealthy)
+    {
+        <button class="btn btn-sm btn-outline-light ms-2" @onclick="CheckApiHealth">
+            <i class="fas fa-refresh"></i> Preveriti
+        </button>
+    }
+</div>
+
+<div class="dashboard-header mb-4">
+    <div class="row align-items-center">
+        <div class="col-md-8">
+            <h1 class="display-5 fw-bold text-primary mb-2">
+                📚 Knjižnica Dashboard
+            </h1>
+            <p class="lead text-muted mb-0">
+                Pregled celotne zbirke knjig, avtorjev in kategorij
+            </p>
+        </div>
+        <div class="col-md-4 text-md-end">
+            <div class="d-flex flex-column align-items-md-end">
+                <small class="text-muted">Zadnja posodobitev:</small>
+                <strong>@DateTime.Now.ToString("dd.MM.yyyy HH:mm")</strong>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (!apiHealthy)
+{
+    <div class="alert alert-warning d-flex align-items-center mb-4">
+        <i class="fas fa-exclamation-triangle me-3"></i>
+        <div>
+            <h4 class="alert-heading">API ni dosegljiv</h4>
+            <p class="mb-2">Aplikacija se ne more povezati z API strežnikom. Preverite:</p>
+            <ul class="mb-2">
+                <li>Ali je API zagnan na <code>https://localhost:7253</code></li>
+                <li>Ali je CORS pravilno konfiguriran</li>
+                <li>Ali imate internetno povezavo</li>
+            </ul>
+            <button class="btn btn-warning" @onclick="CheckApiHealth">
+                <i class="fas fa-sync me-1"></i> Poskusi znova
+            </button>
+        </div>
+    </div>
+}
+
+@if (loading)
+{
+    <LoadingSpinner IsLoading="true"
+                    LoadingText="Nalaganje podatkov..."
+                    SpinnerType="pulse"
+                    ShowProgress="true"
+                    Progress="loadingProgress" />
+}
+else if (!string.IsNullOrEmpty(errorMessage))
+{
+    <Alert Message="@errorMessage" Type="Alert.AlertType.Danger" />
+
+    <div class="text-center mt-4">
+        <button class="btn btn-primary" @onclick="LoadData">
+            <i class="fas fa-refresh"></i> Poskusi znova
+        </button>
+    </div>
+}
+else if (apiHealthy)
+{
+    <!-- Quick Stats Cards -->
+    <div class="row mb-4">
+        <div class="col-lg-3 col-md-6 mb-3">
+            <div class="card stats-card h-100" style="background: linear-gradient(135deg, #3b82f6 0%, #1e40af 100%);">
+                <div class="card-body text-center text-white">
+                    <div class="stats-icon mb-2">
+                        <i class="fas fa-book fa-2x opacity-75"></i>
+                    </div>
+                    <h2 class="mb-1 fw-bold" id="booksCounter">@knjige.Count</h2>
+                    <p class="mb-1">Skupaj knjig</p>
+                    <small class="opacity-75">v knjižnici</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-3 col-md-6 mb-3">
+            <div class="card stats-card h-100" style="background: linear-gradient(135deg, #10b981 0%, #047857 100%);">
+                <div class="card-body text-center text-white">
+                    <div class="stats-icon mb-2">
+                        <i class="fas fa-users fa-2x opacity-75"></i>
+                    </div>
+                    <h2 class="mb-1 fw-bold" id="authorsCounter">@avtorji.Count</h2>
+                    <p class="mb-1">Skupaj avtorjev</p>
+                    <small class="opacity-75">registriranih</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-3 col-md-6 mb-3">
+            <div class="card stats-card h-100" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);">
+                <div class="card-body text-center text-white">
+                    <div class="stats-icon mb-2">
+                        <i class="fas fa-tags fa-2x opacity-75"></i>
+                    </div>
+                    <h2 class="mb-1 fw-bold" id="categoriesCounter">@kategorije.Count</h2>
+                    <p class="mb-1">Skupaj kategorij</p>
+                    <small class="opacity-75">dostopnih</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-3 col-md-6 mb-3">
+            <div class="card stats-card h-100" style="background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);">
+                <div class="card-body text-center text-white">
+                    <div class="stats-icon mb-2">
+                        <i class="fas fa-chart-line fa-2x opacity-75"></i>
+                    </div>
+                    <h2 class="mb-1 fw-bold" id="averageCounter">@(avtorji.Any() ? (int)avtorji.Average(a => a.Starost) : 0)</h2>
+                    <p class="mb-1">Povprečna starost</p>
+                    <small class="opacity-75">avtorjev</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Statistics Charts -->
+    @if (knjige.Any() && avtorji.Any() && kategorije.Any())
+    {
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h4 class="mb-0">📊 Statistični pregled</h4>
+                <div class="btn-group" role="group">
+                    <button class="btn btn-outline-primary btn-sm" @onclick="RefreshCharts" title="Osveži grafe">
+                        <i class="fas fa-refresh"></i>
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="ExportCharts" title="Izvozi grafe">
+                        <i class="fas fa-download"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <KnjiznicaBlazor.Components.Statistics Books="knjige" Authors="avtorji" Categories="kategorije" />
+            </div>
+        </div>
+    }
+
+    <!-- Recent Books Section -->
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h4 class="mb-0">📖 Najnovejše dodane knjige</h4>
+            <a href="/knjige" class="btn btn-outline-primary btn-sm">
+                Poglej vse <i class="fas fa-arrow-right ms-1"></i>
+            </a>
+        </div>
+        <div class="card-body">
+            @if (najnovejseKnjige.Any())
+            {
+                <KnjiznicaBlazor.Components.DataTable TItem="Knjiga"
+                                                      Items="najnovejseKnjige"
+                                                      Columns="tableColumns"
+                                                      ShowActions="false"
+                                                      EmptyMessage="Ni knjig za prikaz." />
+            }
+            else
+            {
+                <div class="text-center text-muted py-4">
+                    <i class="fas fa-book fa-3x mb-3"></i>
+                    <p>Dodajte prvo knjigo v knjižnico!</p>
+                    <a href="/knjige" class="btn btn-primary">
+                        <i class="fas fa-plus"></i> Dodaj knjigo
+                    </a>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="row">
+        <div class="col-md-4 mb-3">
+            <div class="card h-100 border-primary">
+                <div class="card-body text-center">
+                    <i class="fas fa-plus-circle fa-3x text-primary mb-3"></i>
+                    <h5>Dodaj novo knjigo</h5>
+                    <p class="text-muted">Hitro dodajte novo knjigo v zbirko</p>
+                    <a href="/knjige" class="btn btn-primary">
+                        <i class="fas fa-plus"></i> Dodaj knjigo
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4 mb-3">
+            <div class="card h-100 border-success">
+                <div class="card-body text-center">
+                    <i class="fas fa-user-plus fa-3x text-success mb-3"></i>
+                    <h5>Registriraj avtorja</h5>
+                    <p class="text-muted">Dodajte novega avtorja v sistem</p>
+                    <a href="/avtorji" class="btn btn-success">
+                        <i class="fas fa-user-plus"></i> Dodaj avtorja
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4 mb-3">
+            <div class="card h-100 border-warning">
+                <div class="card-body text-center">
+                    <i class="fas fa-tag fa-3x text-warning mb-3"></i>
+                    <h5>Ustvari kategorijo</h5>
+                    <p class="text-muted">Organizirajte knjige po kategorijah</p>
+                    <a href="/kategorije" class="btn btn-warning">
+                        <i class="fas fa-tag"></i> Dodaj kategorijo
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Knjiga> knjige = new();
+    private List<Avtor> avtorji = new();
+    private List<Kategorija> kategorije = new();
+    private List<Knjiga> najnovejseKnjige = new();
+    private bool loading = true;
+    private bool apiHealthy = false;
+    private int loadingProgress = 0;
+    private string? errorMessage;
+    private List<KnjiznicaBlazor.Components.DataTable<Knjiga>.TableColumn<Knjiga>> tableColumns = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        InitializeTableColumns();
+        await CheckApiHealth();
+        if (apiHealthy)
+        {
+            await LoadData();
+        }
+        else
+        {
+            loading = false;
+        }
+    }
+
+    private async Task CheckApiHealth()
+    {
+        try
+        {
+            apiHealthy = await KnjiznicaService.IsApiHealthyAsync();
+            StateHasChanged();
+        }
+        catch
+        {
+            apiHealthy = false;
+            StateHasChanged();
+        }
+    }
+
+    private void InitializeTableColumns()
+    {
+        tableColumns = new List<KnjiznicaBlazor.Components.DataTable<Knjiga>.TableColumn<Knjiga>>
+        {
+            new() { Header = "Naslov", Template = knjiga => @<text><strong>@knjiga.Naslov</strong></text> },
+            new() { Header = "Avtor", Template = knjiga => @<text>@knjiga.Avtor?.PolnoIme</text> },
+            new() { Header = "Kategorija", Template = knjiga =>
+    @<text>
+        <span class="badge bg-secondary">@knjiga.Kategorija?.Ime</span>
+    </text>
+            },
+            new() { Header = "ISBN", Template = knjiga => @<text><code class="text-muted">@knjiga.ISBN</code></text> },
+            new() { Header = "Datum izdaje", Template = knjiga => @<text>@knjiga.DatumIzdaje.ToString("dd.MM.yyyy")</text> }
+        };
+    }
+
+    private async Task LoadData()
+    {
+        try
+        {
+            loading = true;
+            loadingProgress = 0;
+            errorMessage = null;
+            StateHasChanged();
+
+            // Simulate loading progress
+            loadingProgress = 25;
+            StateHasChanged();
+            await Task.Delay(200);
+
+            // Load all data in parallel
+            var knjigaTask = KnjiznicaService.GetKnjigeAsync();
+            var avtorjiTask = KnjiznicaService.GetAvtorjiAsync();
+            var kategorijeTask = KnjiznicaService.GetKategorijeAsync();
+
+            loadingProgress = 50;
+            StateHasChanged();
+
+            await Task.WhenAll(knjigaTask, avtorjiTask, kategorijeTask);
+
+            knjige = await knjigaTask;
+            avtorji = await avtorjiTask;
+            kategorije = await kategorijeTask;
+
+            loadingProgress = 75;
+            StateHasChanged();
+
+            // Get newest books (last 5 added, simulated by ID)
+            najnovejseKnjige = knjige
+                .OrderByDescending(k => k.Id)
+                .Take(5)
+                .ToList();
+
+            loadingProgress = 100;
+            StateHasChanged();
+
+            // Animate counters after data loads
+            await Task.Delay(100);
+            await AnimateCounters();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Napaka pri nalaganju podatkov: {ex.Message}";
+            apiHealthy = false;
+        }
+        finally
+        {
+            loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task AnimateCounters()
+    {
+        await JSRuntime.InvokeVoidAsync("animateCounter", "booksCounter", 0, knjige.Count, 1500);
+        await Task.Delay(200);
+        await JSRuntime.InvokeVoidAsync("animateCounter", "authorsCounter", 0, avtorji.Count, 1500);
+        await Task.Delay(200);
+        await JSRuntime.InvokeVoidAsync("animateCounter", "categoriesCounter", 0, kategorije.Count, 1500);
+        await Task.Delay(200);
+        if (avtorji.Any())
+        {
+            await JSRuntime.InvokeVoidAsync("animateCounter", "averageCounter", 0, (int)avtorji.Average(a => a.Starost), 1500);
+        }
+    }
+
+    private async Task RefreshCharts()
+    {
+        await LoadData();
+        await JSRuntime.InvokeVoidAsync("showToast", "Grafi so bili osveženi!", "success");
+    }
+
+    private async Task ExportCharts()
+    {
+        await JSRuntime.InvokeVoidAsync("exportChartData", "categoryChart", "kategorije_grafik", "png");
+        await JSRuntime.InvokeVoidAsync("exportChartData", "authorChart", "avtorji_grafik", "png");
+        await JSRuntime.InvokeVoidAsync("exportChartData", "decadeChart", "dekade_grafik", "png");
+        await JSRuntime.InvokeVoidAsync("exportChartData", "ageGroupChart", "starost_grafik", "png");
+        await JSRuntime.InvokeVoidAsync("showToast", "Grafi so bili izvoženi!", "success");
+    }
+}
+
+<style>
+    .api-status-indicator {
+        position: fixed;
+        top: 10px;
+        right: 10px;
+        z-index: 1000;
+        padding: 0.5rem 1rem;
+        border-radius: 0.5rem;
+        font-size: 0.875rem;
+        font-weight: 500;
+        transition: all 0.3s ease;
+    }
+
+        .api-status-indicator.healthy {
+            background-color: #10b981;
+            color: white;
+        }
+
+        .api-status-indicator.unhealthy {
+            background-color: #ef4444;
+            color: white;
+            animation: pulse 2s infinite;
+        }
+
+    @@keyframes pulse {
+        0%, 100%
+
+    {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.7;
+    }
+
+    }
+
+    .dashboard-header {
+        background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(16, 185, 129, 0.1) 100%);
+        border-radius: 0.75rem;
+        padding: 2rem;
+        margin-bottom: 2rem;
+        border: 1px solid rgba(59, 130, 246, 0.2);
+    }
+
+    .stats-card {
+        transition: all 0.3s ease;
+        border: none;
+        overflow: hidden;
+    }
+
+        .stats-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+        }
+
+    .stats-icon {
+        opacity: 0.8;
+        transition: all 0.3s ease;
+    }
+
+    .stats-card:hover .stats-icon {
+        opacity: 1;
+        transform: scale(1.1);
+    }
+
+    .card {
+        transition: all 0.2s ease;
+    }
+
+        .card:hover {
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+
+    .chart-container {
+        position: relative;
+        height: 300px;
+        margin: 1rem 0;
+    }
+
+    @@media (max-width: 768px) {
+        .dashboard-header
+
+    {
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .dashboard-header .row {
+        text-align: center;
+    }
+
+    .stats-card .card-body {
+        padding: 1rem;
+    }
+
+    .chart-container {
+        height: 250px;
+    }
+
+    .api-status-indicator {
+        position: relative;
+        top: auto;
+        right: auto;
+        margin-bottom: 1rem;
+        display: block;
+        text-align: center;
+    }
+
+    }
+
+    @@media (max-width: 576px) {
+        .dashboard-header
+
+    {
+        padding: 1rem;
+    }
+
+    .dashboard-header h1 {
+        font-size: 1.75rem;
+    }
+
+    .dashboard-header .lead {
+        font-size: 1rem;
+    }
+
+    }
+</style>

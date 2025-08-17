@@ -1,0 +1,740 @@
+﻿@page "/knjige"
+@using KnjiznicaBlazor.Services
+@using KnjiznicaBlazor.Models
+@using Microsoft.AspNetCore.Components.Forms
+@using KnjiznicaBlazor.Components
+@inject KnjiznicaService KnjiznicaService
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Knjige</PageTitle>
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="display-6 fw-bold text-primary mb-2">📚 Knjige</h1>
+            <p class="text-muted mb-0">Upravljanje zbirke knjig v knjižnici</p>
+        </div>
+        <button class="btn btn-primary btn-lg" @onclick="() => ShowModal(new Knjiga())">
+            <i class="fas fa-plus me-2"></i> Dodaj knjigo
+        </button>
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <KnjiznicaBlazor.Components.Alert Message="@errorMessage" Type="KnjiznicaBlazor.Components.Alert.AlertType.Danger" OnDismiss="() => errorMessage = null" />
+    }
+
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <KnjiznicaBlazor.Components.Alert Message="@successMessage" Type="KnjiznicaBlazor.Components.Alert.AlertType.Success" OnDismiss="() => successMessage = null" />
+    }
+
+    <!-- Enhanced Search Section -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0">🔍 Iskanje in filtriranje</h5>
+        </div>
+        <div class="card-body">
+            <KnjiznicaBlazor.Components.SearchBox SearchTerm="@globalSearchTerm"
+                                                  Placeholder="Išči po naslovu, avtorju, kategoriji ali ISBN..."
+                                                  Suggestions="@searchSuggestions"
+                                                  Categories="@GetCategoryNames()"
+                                                  OnSearch="OnGlobalSearch"
+                                                  OnAdvancedSearch="OnAdvancedSearch"
+                                                  OnSuggestionSelected="OnSuggestionSelected"
+                                                  EnableDateRange="true"
+                                                  EnableCategoryFilter="true"
+                                                  EnableSortOptions="true" />
+
+            <!-- Quick filters -->
+            <div class="d-flex flex-wrap gap-2 mt-3">
+                <span class="text-muted me-2">Hitre možnosti:</span>
+                <button class="btn btn-sm btn-outline-secondary" @@onclick="() => ApplyQuickFilter(" recent")">
+                    <i class="fas fa-clock me-1"></i> Najnovejše
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" @@onclick="() => ApplyQuickFilter(" popular")">
+                    <i class="fas fa-star me-1"></i> Priljubljene
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" @@onclick="() => ApplyQuickFilter(" classic")">
+                    <i class="fas fa-bookmark me-1"></i> Klasike
+                </button>
+                <button class="btn btn-sm btn-outline-danger" @onclick="ClearAllFilters">
+                    <i class="fas fa-times me-1"></i> Počisti
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @if (loading)
+    {
+        <KnjiznicaBlazor.Components.LoadingSpinner IsLoading="true"
+                                                   LoadingText="Nalaganje knjig..."
+                                                   SpinnerType="circle"
+                                                   ShowProgress="false" />
+    }
+    else
+    {
+        <!-- Results summary -->
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+                <span class="text-muted">
+                    Prikazuje @filteredKnjige.Count od @knjige.Count knjig
+                    @if (!string.IsNullOrEmpty(globalSearchTerm))
+                    {
+                        <span>za "<strong>@globalSearchTerm</strong>"</span>
+                    }
+                </span>
+            </div>
+
+            <div class="d-flex align-items-center gap-2">
+                <label class="form-label mb-0 me-2">Razvrsti:</label>
+                <select class="form-select form-select-sm" style="width: auto;"
+                        @onchange="OnSortChanged">
+                    <option value="name">Po imenu</option>
+                    <option value="author">Po avtorju</option>
+                    <option value="date">Po datumu izdaje</option>
+                    <option value="category">Po kategoriji</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-body p-0">
+                <KnjiznicaBlazor.Components.DataTable TItem="Knjiga"
+                                                      Items="GetPagedItems()"
+                                                      Columns="tableColumns"
+                                                      ShowActions="true"
+                                                      EmptyMessage="Ni knjig za prikaz."
+                                                      OnEdit="ShowModal"
+                                                      OnDelete="DeleteKnjiga" />
+            </div>
+
+            @if (filteredKnjige.Count > pageSize)
+            {
+                <div class="card-footer bg-light">
+                    <KnjiznicaBlazor.Components.Pagination CurrentPage="@currentPage"
+                                                           PageSize="@pageSize"
+                                                           TotalItems="@filteredKnjige.Count"
+                                                           OnPageChanged="OnPageChanged"
+                                                           OnPageSizeChanged="OnPageSizeChanged"
+                                                           ShowQuickJump="true" />
+                </div>
+            }
+        </div>
+    }
+</div>
+
+<!-- Enhanced Modal for Add/Edit -->
+@if (showModal)
+{
+    <div class="modal fade show" style="display: block;" aria-modal="true" role="dialog">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title">
+                        <i class="fas @(selectedKnjiga.Id == 0 ? "fa-plus" : "fa-edit") me-2"></i>
+                        @(selectedKnjiga.Id == 0 ? "Dodaj novo knjigo" : "Uredi knjigo")
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseModal"></button>
+                </div>
+                <div class="modal-body">
+                    @if (loadingModal)
+                    {
+                        <KnjiznicaBlazor.Components.LoadingSpinner IsLoading="true"
+                                                                   LoadingText="Nalaganje podatkov..."
+                                                                   SpinnerType="pulse" />
+                    }
+                    else
+                    {
+                        <EditForm Model="selectedKnjiga" OnValidSubmit="SaveKnjiga">
+                            <DataAnnotationsValidator />
+                            <ValidationSummary class="alert alert-danger" />
+
+                            <div class="row g-3">
+                                <div class="col-md-8">
+                                    <label class="form-label">Naslov *</label>
+                                    <InputText class="form-control" @bind-Value="selectedKnjiga.Naslov"
+                                               placeholder="Vnesite naslov knjige" />
+                                    <ValidationMessage For="@(() => selectedKnjiga.Naslov)" />
+                                </div>
+
+                                <div class="col-md-4">
+                                    <label class="form-label">ISBN *</label>
+                                    <div class="input-group">
+                                        <InputText class="form-control" @bind-Value="selectedKnjiga.ISBN"
+                                                   placeholder="978-961-01-1234" @oninput="OnISBNInput" />
+                                        <button class="btn btn-outline-secondary" type="button"
+                                                @onclick="ValidateISBN" title="Preveri ISBN">
+                                            <i class="fas fa-check"></i>
+                                        </button>
+                                    </div>
+                                    <ValidationMessage For="@(() => selectedKnjiga.ISBN)" />
+                                    @if (!string.IsNullOrEmpty(isbnValidationMessage))
+                                    {
+                                        <small class="@(isbnValid ? "text-success" : "text-danger")">
+                                            <i class="fas @(isbnValid ? "fa-check" : "fa-times") me-1"></i>
+                                            @isbnValidationMessage
+                                        </small>
+                                    }
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label">Avtor *</label>
+                                    <InputSelect class="form-select" @bind-Value="selectedKnjiga.AvtorId">
+                                        <option value="0">Izberite avtorja...</option>
+                                        @foreach (var avtor in avtorji)
+                                        {
+                                            <option value="@avtor.Id">@avtor.PolnoIme</option>
+                                        }
+                                    </InputSelect>
+                                    <ValidationMessage For="@(() => selectedKnjiga.AvtorId)" />
+
+                                    <div class="mt-2">
+                                        <button type="button" class="btn btn-sm btn-outline-success"
+                                                @onclick="ShowAddAuthorModal">
+                                            <i class="fas fa-user-plus me-1"></i> Dodaj avtorja
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label">Kategorija *</label>
+                                    <InputSelect class="form-select" @bind-Value="selectedKnjiga.KategorijaId">
+                                        <option value="0">Izberite kategorijo...</option>
+                                        @foreach (var kategorija in kategorije)
+                                        {
+                                            <option value="@kategorija.Id">@kategorija.Ime</option>
+                                        }
+                                    </InputSelect>
+                                    <ValidationMessage For="@(() => selectedKnjiga.KategorijaId)" />
+
+                                    <div class="mt-2">
+                                        <button type="button" class="btn btn-sm btn-outline-info"
+                                                @onclick="ShowAddCategoryModal">
+                                            <i class="fas fa-tag me-1"></i> Dodaj kategorijo
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label">Datum izdaje *</label>
+                                    <InputDate class="form-control" @bind-Value="selectedKnjiga.DatumIzdaje" />
+                                    <ValidationMessage For="@(() => selectedKnjiga.DatumIzdaje)" />
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label">Starost knjige</label>
+                                    <input type="text" class="form-control"
+                                           value="@GetBookAge(selectedKnjiga.DatumIzdaje)"
+                                           readonly />
+                                    <small class="text-muted">Avtomatsko izračunano</small>
+                                </div>
+                            </div>
+
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" @onclick="CloseModal">
+                                    <i class="fas fa-times me-1"></i> Prekliči
+                                </button>
+                                <button type="submit" class="btn btn-primary" disabled="@savingData">
+                                    @if (savingData)
+                                    {
+                                        <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                    }
+                                    <i class="fas fa-save me-1"></i> Shrani
+                                </button>
+                            </div>
+                        </EditForm>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
+@code {
+    private List<Knjiga> knjige = new();
+    private List<Knjiga> filteredKnjige = new();
+    private List<Avtor> avtorji = new();
+    private List<Kategorija> kategorije = new();
+    private List<KnjiznicaBlazor.Components.DataTable<Knjiga>.TableColumn<Knjiga>> tableColumns = new();
+    private List<KnjiznicaBlazor.Components.SearchBox.SearchSuggestion> searchSuggestions = new();
+
+    private bool loading = true;
+    private bool loadingModal = false;
+    private bool savingData = false;
+    private bool showModal = false;
+    private Knjiga selectedKnjiga = new();
+    private string? errorMessage;
+    private string? successMessage;
+
+    // Search and filtering
+    private string globalSearchTerm = "";
+    private string sortBy = "name";
+
+    // Pagination
+    private int currentPage = 1;
+    private int pageSize = 10;
+
+    // ISBN validation
+    private string isbnValidationMessage = "";
+    private bool isbnValid = false;
+
+    private Timer? searchTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        InitializeTableColumns();
+        await LoadData();
+    }
+
+    private void InitializeTableColumns()
+    {
+        tableColumns = new List<KnjiznicaBlazor.Components.DataTable<Knjiga>.TableColumn<Knjiga>>
+        {
+            new() {
+                Header = "Naslov",
+                Template = knjiga => @<text>
+        <div>
+            <strong class="text-primary">@knjiga.Naslov</strong>
+            <br>
+            <small class="text-muted">@GetBookAge(knjiga.DatumIzdaje)</small>
+        </div>
+    </text>
+            },
+            new() {
+                Header = "Avtor",
+                Template = knjiga => @<text>
+        <div>
+            @knjiga.Avtor?.PolnoIme
+            @if (knjiga.Avtor != null)
+        {
+            <br>
+            <small class="text-muted">@knjiga.Avtor.Starost let</small>
+        }
+        </div>
+    </text>
+            },
+            new() {
+                Header = "Kategorija",
+                Template = knjiga => @<text>
+        <span class="badge bg-secondary">@knjiga.Kategorija?.Ime</span>
+    </text>
+            },
+            new() {
+                Header = "ISBN",
+                Template = knjiga => @<text>
+        <code class="text-muted">@knjiga.ISBN</code>
+        <button class="btn btn-sm btn-outline-secondary ms-1"
+                @onclick="() => CopyToClipboard(knjiga.ISBN)"
+                title="Kopiraj ISBN">
+            <i class="fas fa-copy"></i>
+        </button>
+    </text>
+            },
+            new() {
+                Header = "Datum izdaje",
+                Template = knjiga => @<text>
+        @knjiga.DatumIzdaje.ToString("dd.MM.yyyy")
+    </text>
+            }
+        };
+    }
+
+    private async Task LoadData()
+    {
+        try
+        {
+            loading = true;
+            errorMessage = null;
+            StateHasChanged();
+
+            var knjigaTask = KnjiznicaService.GetKnjigeAsync();
+            var avtorjiTask = KnjiznicaService.GetAvtorjiAsync();
+            var kategorijeTask = KnjiznicaService.GetKategorijeAsync();
+
+            await Task.WhenAll(knjigaTask, avtorjiTask, kategorijeTask);
+
+            knjige = await knjigaTask;
+            avtorji = await avtorjiTask;
+            kategorije = await kategorijeTask;
+
+            ApplyFilters();
+            GenerateSearchSuggestions();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Napaka pri nalaganju podatkov: {ex.Message}";
+        }
+        finally
+        {
+            loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ApplyFilters()
+    {
+        filteredKnjige = knjige.Where(k =>
+            string.IsNullOrEmpty(globalSearchTerm) ||
+            k.Naslov.Contains(globalSearchTerm, StringComparison.OrdinalIgnoreCase) ||
+            k.Avtor?.PolnoIme.Contains(globalSearchTerm, StringComparison.OrdinalIgnoreCase) == true ||
+            k.Kategorija?.Ime.Contains(globalSearchTerm, StringComparison.OrdinalIgnoreCase) == true ||
+            k.ISBN.Contains(globalSearchTerm, StringComparison.OrdinalIgnoreCase)
+        ).ToList();
+
+        ApplySorting();
+        currentPage = 1; // Reset to first page
+    }
+
+    private void ApplySorting()
+    {
+        filteredKnjige = sortBy switch
+        {
+            "author" => filteredKnjige.OrderBy(k => k.Avtor?.PolnoIme).ToList(),
+            "date" => filteredKnjige.OrderByDescending(k => k.DatumIzdaje).ToList(),
+            "category" => filteredKnjige.OrderBy(k => k.Kategorija?.Ime).ToList(),
+            _ => filteredKnjige.OrderBy(k => k.Naslov).ToList()
+        };
+    }
+
+    private void GenerateSearchSuggestions()
+    {
+        searchSuggestions.Clear();
+
+        // Add book titles
+        searchSuggestions.AddRange(knjige.Take(5).Select(k => new KnjiznicaBlazor.Components.SearchBox.SearchSuggestion
+            {
+                Text = k.Naslov,
+                Type = "book",
+                Category = "Knjiga"
+            }));
+
+        // Add authors
+        searchSuggestions.AddRange(avtorji.Take(5).Select(a => new KnjiznicaBlazor.Components.SearchBox.SearchSuggestion
+            {
+                Text = a.PolnoIme,
+                Type = "author",
+                Category = "Avtor"
+            }));
+
+        // Add categories
+        searchSuggestions.AddRange(kategorije.Take(3).Select(c => new KnjiznicaBlazor.Components.SearchBox.SearchSuggestion
+            {
+                Text = c.Ime,
+                Type = "category",
+                Category = "Kategorija"
+            }));
+    }
+
+    private List<string> GetCategoryNames()
+    {
+        return kategorije.Select(k => k.Ime).ToList();
+    }
+
+    private List<Knjiga> GetPagedItems()
+    {
+        var skip = (currentPage - 1) * pageSize;
+        return filteredKnjige.Skip(skip).Take(pageSize).ToList();
+    }
+
+    private string GetBookAge(DateTime dateIssued)
+    {
+        var age = DateTime.Now.Year - dateIssued.Year;
+        return age switch
+        {
+            0 => "Nova knjiga",
+            1 => "1 leto stara",
+            < 5 => $"{age} leta stara",
+            < 20 => $"{age} let stara",
+            _ => "Klasična knjiga"
+        };
+    }
+
+    // Event handlers
+    private async Task OnGlobalSearch(string searchTerm)
+    {
+        globalSearchTerm = searchTerm;
+        searchTimer?.Dispose();
+        searchTimer = new Timer(async _ => await InvokeAsync(() =>
+        {
+            ApplyFilters();
+            StateHasChanged();
+        }), null, 300, Timeout.Infinite);
+    }
+
+    private async Task OnAdvancedSearch(KnjiznicaBlazor.Components.SearchBox.AdvancedSearchParams parameters)
+    {
+        // Implement advanced search logic here
+        globalSearchTerm = parameters.SearchTerm;
+        sortBy = parameters.SortBy;
+
+        // Apply date filters if specified
+        filteredKnjige = knjige.Where(k =>
+            (string.IsNullOrEmpty(parameters.SearchTerm) ||
+             k.Naslov.Contains(parameters.SearchTerm, StringComparison.OrdinalIgnoreCase) ||
+             k.Avtor?.PolnoIme.Contains(parameters.SearchTerm, StringComparison.OrdinalIgnoreCase) == true ||
+             k.Kategorija?.Ime.Contains(parameters.SearchTerm, StringComparison.OrdinalIgnoreCase) == true ||
+             k.ISBN.Contains(parameters.SearchTerm, StringComparison.OrdinalIgnoreCase)) &&
+
+            (string.IsNullOrEmpty(parameters.Category) ||
+             k.Kategorija?.Ime == parameters.Category) &&
+
+            (parameters.DateFrom == null || k.DatumIzdaje >= parameters.DateFrom) &&
+            (parameters.DateTo == null || k.DatumIzdaje <= parameters.DateTo)
+        ).ToList();
+
+        ApplySorting();
+        currentPage = 1;
+        StateHasChanged();
+
+        await JSRuntime.InvokeVoidAsync("showToast", "Napredno iskanje uporabljeno!", "info");
+    }
+
+    private async Task OnSuggestionSelected(KnjiznicaBlazor.Components.SearchBox.SearchSuggestion suggestion)
+    {
+        globalSearchTerm = suggestion.Text;
+        ApplyFilters();
+        StateHasChanged();
+    }
+
+    private async Task OnSortChanged(ChangeEventArgs e)
+    {
+        sortBy = e.Value?.ToString() ?? "name";
+        ApplySorting();
+        StateHasChanged();
+    }
+
+    private async Task OnPageChanged(int page)
+    {
+        currentPage = page;
+        StateHasChanged();
+    }
+
+    private async Task OnPageSizeChanged(int newPageSize)
+    {
+        pageSize = newPageSize;
+        currentPage = 1;
+        StateHasChanged();
+    }
+
+    private async Task ApplyQuickFilter(string filterType)
+    {
+        switch (filterType)
+        {
+            case "recent":
+                sortBy = "date";
+                globalSearchTerm = "";
+                break;
+            case "popular":
+                // Could implement based on number of views or checkouts
+                break;
+            case "classic":
+                filteredKnjige = knjige.Where(k => DateTime.Now.Year - k.DatumIzdaje.Year > 50).ToList();
+                break;
+        }
+
+        ApplyFilters();
+        StateHasChanged();
+        await JSRuntime.InvokeVoidAsync("showToast", $"Filter '{filterType}' uporabljen!", "success");
+    }
+
+    private async Task ClearAllFilters()
+    {
+        globalSearchTerm = "";
+        sortBy = "name";
+        currentPage = 1;
+        ApplyFilters();
+        StateHasChanged();
+        await JSRuntime.InvokeVoidAsync("showToast", "Vsi filtri so bili počiščeni!", "info");
+    }
+
+    // ISBN validation
+    private async Task OnISBNInput(ChangeEventArgs e)
+    {
+        var isbn = e.Value?.ToString() ?? "";
+        if (isbn.Length >= 10)
+        {
+            await ValidateISBN();
+        }
+        else
+        {
+            isbnValidationMessage = "";
+        }
+    }
+
+    private async Task ValidateISBN()
+    {
+        if (string.IsNullOrEmpty(selectedKnjiga.ISBN))
+        {
+            isbnValidationMessage = "";
+            return;
+        }
+
+        isbnValid = await JSRuntime.InvokeAsync<bool>("validateISBN", selectedKnjiga.ISBN);
+        isbnValidationMessage = isbnValid ? "ISBN je veljaven" : "ISBN ni veljaven";
+        StateHasChanged();
+    }
+
+    private async Task CopyToClipboard(string text)
+    {
+        await JSRuntime.InvokeVoidAsync("copyToClipboard", text);
+    }
+
+    // Modal methods
+    private async Task ShowModal(Knjiga knjiga)
+    {
+        selectedKnjiga = new Knjiga
+            {
+                Id = knjiga.Id,
+                Naslov = knjiga.Naslov,
+                ISBN = knjiga.ISBN,
+                DatumIzdaje = knjiga.DatumIzdaje == default ? DateTime.Today : knjiga.DatumIzdaje,
+                AvtorId = knjiga.AvtorId,
+                KategorijaId = knjiga.KategorijaId
+            };
+
+        isbnValidationMessage = "";
+        showModal = true;
+
+        if (knjiga.Id > 0)
+        {
+            await ValidateISBN();
+        }
+    }
+
+    private void CloseModal()
+    {
+        showModal = false;
+        selectedKnjiga = new();
+        errorMessage = null;
+        isbnValidationMessage = "";
+    }
+
+    private async Task ShowAddAuthorModal()
+    {
+        // This would open another modal for adding authors
+        await JSRuntime.InvokeVoidAsync("showToast", "Funkcionalnost 'Dodaj avtorja' bi odprla nov modal!", "info");
+    }
+
+    private async Task ShowAddCategoryModal()
+    {
+        // This would open another modal for adding categories
+        await JSRuntime.InvokeVoidAsync("showToast", "Funkcionalnost 'Dodaj kategorijo' bi odprla nov modal!", "info");
+    }
+
+    private async Task SaveKnjiga()
+    {
+        try
+        {
+            savingData = true;
+            StateHasChanged();
+
+            if (selectedKnjiga.Id == 0)
+            {
+                await KnjiznicaService.CreateKnjigaAsync(selectedKnjiga);
+                successMessage = "Knjiga je bila uspešno dodana.";
+            }
+            else
+            {
+                await KnjiznicaService.UpdateKnjigaAsync(selectedKnjiga.Id, selectedKnjiga);
+                successMessage = "Knjiga je bila uspešno posodobljena.";
+            }
+
+            CloseModal();
+            await LoadData();
+            await JSRuntime.InvokeVoidAsync("showToast", successMessage, "success");
+        }
+        catch (HttpRequestException ex)
+        {
+            if (ex.Message.Contains("400"))
+            {
+                errorMessage = "Knjiga s tem ISBN že obstaja ali izbrani avtor/kategorija ne obstaja.";
+            }
+            else
+            {
+                errorMessage = $"Napaka pri shranjevanju knjige: {ex.Message}";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Napaka pri shranjevanju knjige: {ex.Message}";
+        }
+        finally
+        {
+            savingData = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DeleteKnjiga(Knjiga knjiga)
+    {
+        if (await JSRuntime.InvokeAsync<bool>("confirmDialog",
+            $"Ali ste prepričani, da želite izbrisati knjigo '{knjiga.Naslov}'? Te akcije ni mogoče razveljaviti.",
+            "Potrditev brisanja"))
+        {
+            try
+            {
+                await KnjiznicaService.DeleteKnjigaAsync(knjiga.Id);
+                successMessage = "Knjiga je bila uspešno izbrisana.";
+                await LoadData();
+                await JSRuntime.InvokeVoidAsync("showToast", successMessage, "success");
+            }
+            catch (Exception ex)
+            {
+                errorMessage = $"Napaka pri brisanju knjige: {ex.Message}";
+                await JSRuntime.InvokeVoidAsync("showToast", errorMessage, "danger");
+            }
+        }
+    }
+
+    public void Dispose()
+    {
+        searchTimer?.Dispose();
+    }
+}
+
+<style>
+    .badge {
+        font-size: 0.8em;
+        padding: 0.4em 0.8em;
+    }
+
+    .table td {
+        vertical-align: middle;
+    }
+
+    .modal-dialog-centered {
+        min-height: calc(100% - 1rem);
+        display: flex;
+        align-items: center;
+    }
+
+    .form-control:focus,
+    .form-select:focus {
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.25);
+    }
+
+    .input-group .btn {
+        border-left: none;
+    }
+
+    @@media (max-width: 768px) {
+        .modal-dialog
+
+    {
+        margin: 0.5rem;
+    }
+
+    .table-responsive {
+        font-size: 0.875rem;
+    }
+
+    .btn-group .btn {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.75rem;
+    }
+
+    }
+</style>

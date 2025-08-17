@@ -1,0 +1,45 @@
+﻿@if (!string.IsNullOrEmpty(Message))
+{
+    <div class="alert @GetAlertClass() @(ShowDismissButton ? "alert-dismissible" : "") fade show" role="alert">
+        @Message
+        @if (ShowDismissButton)
+        {
+            <button type="button" class="btn-close" @onclick="OnDismiss" aria-label="Zapri"></button>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public string? Message { get; set; }
+    [Parameter] public AlertType Type { get; set; } = AlertType.Info;
+    [Parameter] public bool ShowDismissButton { get; set; } = true;
+    [Parameter] public EventCallback OnDismiss { get; set; }
+
+    public enum AlertType
+    {
+        Primary,
+        Secondary,
+        Success,
+        Danger,
+        Warning,
+        Info,
+        Light,
+        Dark
+    }
+
+    private string GetAlertClass()
+    {
+        return Type switch
+        {
+            AlertType.Primary => "alert-primary",
+            AlertType.Secondary => "alert-secondary",
+            AlertType.Success => "alert-success",
+            AlertType.Danger => "alert-danger",
+            AlertType.Warning => "alert-warning",
+            AlertType.Info => "alert-info",
+            AlertType.Light => "alert-light",
+            AlertType.Dark => "alert-dark",
+            _ => "alert-info"
+        };
+    }
+}

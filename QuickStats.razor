@@ -1,0 +1,620 @@
+﻿@inject IJSRuntime JSRuntime
+
+<div class="quick-stats @CssClass">
+    @if (Title != null)
+    {
+        <div class="stats-header mb-3">
+            <h5 class="mb-0">@Title</h5>
+            @if (!string.IsNullOrEmpty(Subtitle))
+            {
+                <small class="text-muted">@Subtitle</small>
+            }
+        </div>
+    }
+
+    <div class="row g-3">
+        @foreach (var stat in Stats)
+        {
+            <div class="col-md-@GetColumnSize()">
+                <div class="stat-card @GetCardClass(stat.Type) @(stat.IsClickable ? "clickable" : "")"
+                     @onclick="() => OnStatClick(stat)">
+                    <div class="stat-content">
+                        @if (!string.IsNullOrEmpty(stat.Icon))
+                        {
+                            <div class="stat-icon @GetIconClass(stat.Type)">
+                                <i class="@stat.Icon"></i>
+                            </div>
+                        }
+
+                        <div class="stat-info">
+                            <div class="stat-value" id="stat-@stat.Id">
+                                @if (UseAnimation)
+                                {
+                                    <span>0</span>
+                                }
+                                else
+                                {
+                                    <span>@FormatValue(stat.Value)</span>
+                                }
+                            </div>
+                            <div class="stat-label">@stat.Label</div>
+
+                            @if (!string.IsNullOrEmpty(stat.Subtitle))
+                            {
+                                <div class="stat-subtitle">@stat.Subtitle</div>
+                            }
+
+                            @if (stat.Change.HasValue)
+                            {
+                                <div class="stat-change @(stat.Change > 0 ? "positive" : stat.Change < 0 ? "negative" : "neutral")">
+                                    <i class="fas @(stat.Change > 0 ? "fa-arrow-up" : stat.Change < 0 ? "fa-arrow-down" : "fa-minus")"></i>
+                                    @Math.Abs(stat.Change.Value)%
+                                    @if (!string.IsNullOrEmpty(stat.ChangePeriod))
+                                    {
+                                        <span class="period">@stat.ChangePeriod</span>
+                                    }
+                                </div>
+                            }
+                        </div>
+
+                        @if (stat.IsClickable)
+                        {
+                            <div class="stat-action">
+                                <i class="fas fa-chevron-right"></i>
+                            </div>
+                        }
+                    </div>
+
+                    @if (stat.ShowProgress)
+                    {
+                        <div class="stat-progress">
+                            <div class="progress">
+                                <div class="progress-bar @GetProgressClass(stat.Type)"
+                                     style="width: @(stat.ProgressPercentage)%"></div>
+                            </div>
+                            @if (stat.ProgressMax > 0)
+                            {
+                                <small class="progress-text">@stat.Value od @stat.ProgressMax</small>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+
+    @if (ShowRefreshButton)
+    {
+        <div class="stats-footer mt-3 text-center">
+            <button class="btn btn-outline-secondary btn-sm" @onclick="RefreshStats" disabled="@IsRefreshing">
+                @if (IsRefreshing)
+                {
+                    <span class="spinner-border spinner-border-sm me-1"></span>
+                }
+                else
+                {
+                    <i class="fas fa-refresh me-1"></i>
+                }
+                Osveži
+            </button>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public List<StatItem> Stats { get; set; } = new();
+    [Parameter] public string? Title { get; set; }
+    [Parameter] public string? Subtitle { get; set; }
+    [Parameter] public string CssClass { get; set; } = "";
+    [Parameter] public bool UseAnimation { get; set; } = true;
+    [Parameter] public bool ShowRefreshButton { get; set; } = false;
+    [Parameter] public bool IsRefreshing { get; set; } = false;
+    [Parameter] public EventCallback<StatItem> OnStatClicked { get; set; }
+    [Parameter] public EventCallback OnRefresh { get; set; }
+
+    public class StatItem
+    {
+        public string Id { get; set; } = Guid.NewGuid().ToString();
+        public string Label { get; set; } = "";
+        public string? Subtitle { get; set; }
+        public object Value { get; set; } = 0;
+        public string? Icon { get; set; }
+        public StatType Type { get; set; } = StatType.Default;
+        public bool IsClickable { get; set; } = false;
+        public bool ShowProgress { get; set; } = false;
+        public int ProgressMax { get; set; } = 100;
+        public int ProgressPercentage => ProgressMax > 0 ? Math.Min(100, (Convert.ToInt32(Value) * 100) / ProgressMax) : 0;
+        public double? Change { get; set; }
+        public string? ChangePeriod { get; set; }
+        public object? Data { get; set; } // Additional data for click handling
+    }
+
+    public enum StatType
+    {
+        Default,
+        Primary,
+        Success,
+        Warning,
+        Danger,
+        Info
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && UseAnimation && Stats.Any())
+        {
+            await AnimateStats();
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (UseAnimation && Stats.Any())
+        {
+            await AnimateStats();
+        }
+    }
+
+    private async Task AnimateStats()
+    {
+        foreach (var stat in Stats)
+        {
+            if (stat.Value is int intValue)
+            {
+                await JSRuntime.InvokeVoidAsync("animateCounter", $"stat-{stat.Id}", 0, intValue, 1000);
+            }
+            else if (stat.Value is double doubleValue)
+            {
+                await JSRuntime.InvokeVoidAsync("animateCounter", $"stat-{stat.Id}", 0, (int)doubleValue, 1000);
+            }
+
+            await Task.Delay(100); // Stagger animations
+        }
+    }
+
+    private string FormatValue(object value)
+    {
+        return value switch
+        {
+            int i => i.ToString("N0"),
+            double d => d.ToString("N1"),
+            decimal m => m.ToString("N2"),
+            _ => value?.ToString() ?? "0"
+        };
+    }
+
+    private int GetColumnSize()
+    {
+        return Stats.Count switch
+        {
+            1 => 12,
+            2 => 6,
+            3 => 4,
+            4 => 3,
+            _ => 6
+        };
+    }
+
+    private string GetCardClass(StatType type)
+    {
+        return type switch
+        {
+            StatType.Primary => "stat-primary",
+            StatType.Success => "stat-success",
+            StatType.Warning => "stat-warning",
+            StatType.Danger => "stat-danger",
+            StatType.Info => "stat-info",
+            _ => "stat-default"
+        };
+    }
+
+    private string GetIconClass(StatType type)
+    {
+        return type switch
+        {
+            StatType.Primary => "text-primary",
+            StatType.Success => "text-success",
+            StatType.Warning => "text-warning",
+            StatType.Danger => "text-danger",
+            StatType.Info => "text-info",
+            _ => "text-muted"
+        };
+    }
+
+    private string GetProgressClass(StatType type)
+    {
+        return type switch
+        {
+            StatType.Primary => "bg-primary",
+            StatType.Success => "bg-success",
+            StatType.Warning => "bg-warning",
+            StatType.Danger => "bg-danger",
+            StatType.Info => "bg-info",
+            _ => "bg-secondary"
+        };
+    }
+
+    private async Task OnStatClick(StatItem stat)
+    {
+        if (stat.IsClickable)
+        {
+            await OnStatClicked.InvokeAsync(stat);
+        }
+    }
+
+    private async Task RefreshStats()
+    {
+        await OnRefresh.InvokeAsync();
+    }
+
+    public void UpdateStat(string statId, object newValue)
+    {
+        var stat = Stats.FirstOrDefault(s => s.Id == statId);
+        if (stat != null)
+        {
+            stat.Value = newValue;
+            StateHasChanged();
+        }
+    }
+
+    public void AddStat(StatItem stat)
+    {
+        Stats.Add(stat);
+        StateHasChanged();
+    }
+
+    public void RemoveStat(string statId)
+    {
+        var stat = Stats.FirstOrDefault(s => s.Id == statId);
+        if (stat != null)
+        {
+            Stats.Remove(stat);
+            StateHasChanged();
+        }
+    }
+}
+
+<style>
+    .quick-stats {
+        padding: 0;
+    }
+
+    .stats-header h5 {
+        color: #374151;
+        font-weight: 600;
+    }
+
+    .stat-card {
+        background: white;
+        border-radius: 0.75rem;
+        padding: 1.5rem;
+        border: none;
+        box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+        height: 100%;
+    }
+
+        .stat-card.clickable {
+            cursor: pointer;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+
+        .stat-card.clickable:hover .stat-action {
+            opacity: 1;
+            transform: translateX(0);
+        }
+
+    .stat-content {
+        display: flex;
+        align-items: flex-start;
+        gap: 1rem;
+        position: relative;
+    }
+
+    .stat-icon {
+        font-size: 2rem;
+        opacity: 0.8;
+        transition: all 0.3s ease;
+        flex-shrink: 0;
+    }
+
+    .stat-card:hover .stat-icon {
+        opacity: 1;
+        transform: scale(1.1);
+    }
+
+    .stat-info {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .stat-value {
+        font-size: 2rem;
+        font-weight: 700;
+        line-height: 1.2;
+        color: #111827;
+        margin-bottom: 0.25rem;
+    }
+
+    .stat-label {
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: #6b7280;
+        margin-bottom: 0.25rem;
+    }
+
+    .stat-subtitle {
+        font-size: 0.75rem;
+        color: #9ca3af;
+        margin-bottom: 0.5rem;
+    }
+
+    .stat-change {
+        font-size: 0.75rem;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+    }
+
+        .stat-change.positive {
+            color: #059669;
+        }
+
+        .stat-change.negative {
+            color: #dc2626;
+        }
+
+        .stat-change.neutral {
+            color: #6b7280;
+        }
+
+        .stat-change .period {
+            color: #9ca3af;
+            margin-left: 0.25rem;
+        }
+
+    .stat-action {
+        position: absolute;
+        top: 1rem;
+        right: 1rem;
+        opacity: 0;
+        transform: translateX(10px);
+        transition: all 0.3s ease;
+        color: #9ca3af;
+    }
+
+    .stat-progress {
+        margin-top: 1rem;
+        padding-top: 1rem;
+        border-top: 1px solid #f3f4f6;
+    }
+
+    .progress {
+        height: 6px;
+        background-color: #f3f4f6;
+        border-radius: 3px;
+        overflow: hidden;
+    }
+
+    .progress-bar {
+        transition: width 0.6s ease;
+        border-radius: 3px;
+    }
+
+    .progress-text {
+        color: #6b7280;
+        font-size: 0.75rem;
+        margin-top: 0.5rem;
+        display: block;
+    }
+
+    /* Themed stat cards */
+    .stat-primary {
+        background: linear-gradient(135deg, #3b82f6 0%, #1e40af 100%);
+        color: white;
+    }
+
+        .stat-primary .stat-value,
+        .stat-primary .stat-label,
+        .stat-primary .stat-subtitle {
+            color: white;
+        }
+
+        .stat-primary .stat-label,
+        .stat-primary .stat-subtitle {
+            opacity: 0.9;
+        }
+
+    .stat-success {
+        background: linear-gradient(135deg, #10b981 0%, #047857 100%);
+        color: white;
+    }
+
+        .stat-success .stat-value,
+        .stat-success .stat-label,
+        .stat-success .stat-subtitle {
+            color: white;
+        }
+
+        .stat-success .stat-label,
+        .stat-success .stat-subtitle {
+            opacity: 0.9;
+        }
+
+    .stat-warning {
+        background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+        color: white;
+    }
+
+        .stat-warning .stat-value,
+        .stat-warning .stat-label,
+        .stat-warning .stat-subtitle {
+            color: white;
+        }
+
+        .stat-warning .stat-label,
+        .stat-warning .stat-subtitle {
+            opacity: 0.9;
+        }
+
+    .stat-danger {
+        background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+        color: white;
+    }
+
+        .stat-danger .stat-value,
+        .stat-danger .stat-label,
+        .stat-danger .stat-subtitle {
+            color: white;
+        }
+
+        .stat-danger .stat-label,
+        .stat-danger .stat-subtitle {
+            opacity: 0.9;
+        }
+
+    .stat-info {
+        background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
+        color: white;
+    }
+
+        .stat-info .stat-value,
+        .stat-info .stat-label,
+        .stat-info .stat-subtitle {
+            color: white;
+        }
+
+        .stat-info .stat-label,
+        .stat-info .stat-subtitle {
+            opacity: 0.9;
+        }
+
+    /* Dark mode support */
+    @@media (prefers-color-scheme: dark) {
+        .stat-card
+
+    {
+        background-color: #374151;
+        color: #f9fafb;
+    }
+
+    .stat-value {
+        color: #f9fafb;
+    }
+
+    .stat-label {
+        color: #d1d5db;
+    }
+
+    .stat-subtitle {
+        color: #9ca3af;
+    }
+
+    .progress {
+        background-color: #4b5563;
+    }
+
+    .stat-progress {
+        border-top-color: #4b5563;
+    }
+
+    }
+
+    /* Responsive design */
+    @@media (max-width: 768px) {
+        .stat-card
+
+    {
+        padding: 1rem;
+    }
+
+    .stat-value {
+        font-size: 1.5rem;
+    }
+
+    .stat-icon {
+        font-size: 1.5rem;
+    }
+
+    .stat-content {
+        gap: 0.75rem;
+    }
+
+    }
+
+    @@media (max-width: 576px) {
+        .stat-content
+
+    {
+        flex-direction: column;
+        text-align: center;
+        gap: 0.5rem;
+    }
+
+    .stat-icon {
+        align-self: center;
+    }
+
+    .stat-action {
+        position: static;
+        opacity: 1;
+        transform: none;
+        margin-top: 0.5rem;
+    }
+
+    }
+
+    /* Animation utilities */
+    @@keyframes countUp {
+        from
+
+    {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+
+    }
+
+    .stat-value span {
+        animation: countUp 0.5s ease-out;
+    }
+
+    /* Loading state */
+    .stat-card.loading {
+        pointer-events: none;
+        opacity: 0.7;
+    }
+
+        .stat-card.loading::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+            transform: translateX(-100%);
+            animation: shimmer 1.5s infinite;
+        }
+
+    @@keyframes shimmer {
+        100%
+
+    {
+        transform: translateX(100%);
+    }
+
+    }
+</style>

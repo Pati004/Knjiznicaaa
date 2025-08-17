@@ -1,0 +1,947 @@
+﻿@page "/kategorije"
+@using KnjiznicaBlazor.Services
+@using KnjiznicaBlazor.Models
+@using KnjiznicaBlazor.Components
+@using Microsoft.AspNetCore.Components.Forms
+@inject KnjiznicaService KnjiznicaService
+@inject IJSRuntime JSRuntime
+@implements IDisposable
+
+<PageTitle>Kategorije</PageTitle>
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="display-6 fw-bold text-primary mb-2">🏷️ Kategorije</h1>
+            <p class="text-muted mb-0">Organizacija knjig po kategorijah</p>
+        </div>
+        <button class="btn btn-primary btn-lg" @onclick="() => ShowModal(new Kategorija())">
+            <i class="fas fa-plus me-2"></i> Dodaj kategorijo
+        </button>
+    </div>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <Alert Message="@errorMessage" Type="Alert.AlertType.Danger" OnDismiss="() => errorMessage = null" />
+    }
+
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <Alert Message="@successMessage" Type="Alert.AlertType.Success" OnDismiss="() => successMessage = null" />
+    }
+
+    <!-- Quick Statistics -->
+    @if (kategorije.Any())
+    {
+        <div class="mb-4">
+            <KnjiznicaBlazor.Components.QuickStats Stats="@GetQuickStats()"
+                                                   Title="Pregled kategorij"
+                                                   Subtitle="Ključne statistike o kategorijah v knjižnici"
+                                                   UseAnimation="true"
+                                                   OnStatClicked="OnStatClicked" />
+        </div>
+    }
+
+    <!-- Enhanced Search Section -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0">🔍 Iskanje kategorij</h5>
+        </div>
+        <div class="card-body">
+            <SearchBox SearchTerm="@globalSearchTerm"
+                       Placeholder="Išči po imenu kategorije ali opisu..."
+                       Suggestions="@searchSuggestions"
+                       OnSearch="OnGlobalSearch"
+                       OnSuggestionSelected="OnSuggestionSelected"
+                       ShowAdvancedToggle="false"
+                       EnableDateRange="false"
+                       EnableCategoryFilter="false"
+                       EnableSortOptions="false" />
+
+            <!-- Quick filters -->
+            <div class="d-flex flex-wrap gap-2 mt-3">
+                <span class="text-muted me-2">Hitre možnosti:</span>
+                <button class="btn btn-sm btn-outline-secondary" @@onclick="() => ApplyFilter(" popular")">
+                    <i class="fas fa-fire me-1"></i> Priljubljene
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" @@onclick="() => ApplyFilter(" empty")">
+                    <i class="fas fa-inbox me-1"></i> Prazne
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" @@onclick="() => ApplyFilter(" description")">
+                    <i class="fas fa-align-left me-1"></i> Z opisom
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" @@onclick="() => ApplyFilter(" no-description")">
+                    <i class="fas fa-question-circle me-1"></i> Brez opisa
+                </button>
+                <button class="btn btn-sm btn-outline-danger" @onclick="ClearAllFilters">
+                    <i class="fas fa-times me-1"></i> Počisti
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @if (loading)
+    {
+        <LoadingSpinner IsLoading="true"
+                        LoadingText="Nalaganje kategorij..."
+                        SpinnerType="circle"
+                        ShowProgress="false" />
+    }
+    else
+    {
+        <!-- Results summary and sorting -->
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+                <span class="text-muted">
+                    Prikazuje @filteredKategorije.Count od @kategorije.Count kategorij
+                    @if (!string.IsNullOrEmpty(globalSearchTerm))
+                    {
+                        <span>za "<strong>@globalSearchTerm</strong>"</span>
+                    }
+                </span>
+            </div>
+
+            <div class="d-flex align-items-center gap-2">
+                <label class="form-label mb-0 me-2">Razvrsti:</label>
+                <select class="form-select form-select-sm" style="width: auto;"
+                        @onchange="OnSortChanged">
+                    <option value="name">Po imenu</option>
+                    <option value="books">Po številu knjig</option>
+                    <option value="description">Po opisu</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Category Cards View -->
+        @if (viewMode == "cards")
+        {
+            <div class="row g-4 mb-4">
+                @foreach (var kategorija in GetPagedItems())
+                {
+                    <div class="col-lg-4 col-md-6">
+                        <div class="category-card h-100" @onclick="() => ShowModal(kategorija)">
+                            <div class="card-header">
+                                <div class="d-flex justify-content-between align-items-start">
+                                    <h5 class="card-title mb-0">
+                                        <i class="fas fa-tag me-2 text-primary"></i>
+                                        @kategorija.Ime
+                                    </h5>
+                                    <span class="badge @GetBookCountBadgeClass(kategorija.Knjige.Count)">
+                                        @kategorija.Knjige.Count
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                @if (!string.IsNullOrEmpty(kategorija.Opis))
+                                {
+                                    <p class="card-text text-muted">@kategorija.Opis</p>
+                                }
+                                else
+                                {
+                                    <p class="card-text text-muted fst-italic">Ni opisa kategorije</p>
+                                }
+
+                                @if (kategorija.Knjige.Any())
+                                {
+                                    <div class="mt-3">
+                                        <h6 class="text-muted mb-2">Najnovejše knjige:</h6>
+                                        @foreach (var knjiga in kategorija.Knjige.Take(3))
+                                        {
+                                            <div class="book-item">
+                                                <small class="fw-medium">@knjiga.Naslov</small>
+                                                <small class="text-muted d-block">@knjiga.Avtor?.PolnoIme</small>
+                                            </div>
+                                        }
+                                        @if (kategorija.Knjige.Count > 3)
+                                        {
+                                            <small class="text-muted">in @(kategorija.Knjige.Count - 3) več...</small>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                            <div class="card-footer bg-transparent">
+                                <div class="d-flex justify-content-between">
+                                    <button class="btn btn-sm btn-outline-primary" @onclick:stopPropagation="true"
+                                            @onclick="() => ShowModal(kategorija)">
+                                        <i class="fas fa-edit me-1"></i> Uredi
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-danger" @onclick:stopPropagation="true"
+                                            @onclick="() => DeleteKategorija(kategorija)">
+                                        <i class="fas fa-trash me-1"></i> Izbriši
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            <!-- Table View -->
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>Pregled kategorij</span>
+                    <div class="btn-group" role="group">
+                        <button class="btn btn-sm @(viewMode == "table" ? "btn-primary" : "btn-outline-primary")"
+                                @@onclick="() => SetViewMode(" table")">
+                            <i class="fas fa-table"></i>
+                        </button>
+                        <button class="btn btn-sm @(viewMode == "cards" ? "btn-primary" : "btn-outline-primary")"
+                                @@onclick="() => SetViewMode(" cards")">
+                            <i class="fas fa-th-large"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body p-0">
+                    <DataTable TItem="Kategorija"
+                               Items="GetPagedItems()"
+                               Columns="tableColumns"
+                               ShowActions="true"
+                               EmptyMessage="Ni kategorij za prikaz."
+                               OnEdit="ShowModal"
+                               OnDelete="DeleteKategorija" />
+                </div>
+            </div>
+        }
+
+        @if (viewMode == "cards")
+        {
+            <div class="d-flex justify-content-between align-items-center">
+                <div class="btn-group" role="group">
+                    <button class="btn btn-sm @(viewMode == "table" ? "btn-primary" : "btn-outline-primary")"
+                            @@onclick="() => SetViewMode(" table")">
+                        <i class="fas fa-table"></i> Tabela
+                    </button>
+                    <button class="btn btn-sm @(viewMode == "cards" ? "btn-primary" : "btn-outline-primary")"
+                            @@onclick="() => SetViewMode(" cards")">
+                        <i class="fas fa-th-large"></i> Kartice
+                    </button>
+                </div>
+            </div>
+        }
+
+        @if (filteredKategorije.Count > pageSize)
+        {
+            <div class="@(viewMode == "cards" ? "mt-4" : "")">
+                <Pagination CurrentPage="@currentPage"
+                            PageSize="@pageSize"
+                            TotalItems="@filteredKategorije.Count"
+                            OnPageChanged="OnPageChanged"
+                            OnPageSizeChanged="OnPageSizeChanged"
+                            ShowQuickJump="true" />
+            </div>
+        }
+    }
+</div>
+
+<!-- Enhanced Modal for Add/Edit -->
+@if (showModal)
+{
+    <div class="modal fade show" style="display: block;" aria-modal="true" role="dialog">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title">
+                        <i class="fas @(selectedKategorija.Id == 0 ? "fa-plus" : "fa-edit") me-2"></i>
+                        @(selectedKategorija.Id == 0 ? "Dodaj novo kategorijo" : "Uredi kategorijo")
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseModal"></button>
+                </div>
+                <div class="modal-body">
+                    <EditForm Model="selectedKategorija" OnValidSubmit="SaveKategorija">
+                        <DataAnnotationsValidator />
+                        <ValidationSummary class="alert alert-danger" />
+
+                        <div class="row g-3">
+                            <div class="col-12">
+                                <label class="form-label">Ime kategorije *</label>
+                                <InputText class="form-control" @bind-Value="selectedKategorija.Ime"
+                                           placeholder="Vnesite ime kategorije (npr. Fantazija, Biografija)" />
+                                <ValidationMessage For="@(() => selectedKategorija.Ime)" />
+                            </div>
+
+                            <div class="col-12">
+                                <label class="form-label">Opis kategorije</label>
+                                <InputTextArea class="form-control" rows="4" @bind-Value="selectedKategorija.Opis"
+                                               placeholder="Kratek opis kategorije (opcijsko)"
+                                               @oninput="OnDescriptionInput" />
+                                <ValidationMessage For="@(() => selectedKategorija.Opis)" />
+                                <div class="d-flex justify-content-between mt-1">
+                                    <small class="text-muted">Maksimalno 500 znakov</small>
+                                    <small class="text-muted">@(selectedKategorija.Opis?.Length ?? 0) / 500</small>
+                                </div>
+                            </div>
+
+                            @if (selectedKategorija.Id > 0)
+                            {
+                                <div class="col-12">
+                                    <div class="alert alert-info">
+                                        <h6>📊 Statistike kategorije</h6>
+                                        <div class="row text-center">
+                                            <div class="col-md-4">
+                                                <strong>@selectedKategorija.Knjige.Count</strong><br>
+                                                <small>Knjig v kategoriji</small>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <strong>@GetUniqueAuthorsCount(selectedKategorija)</strong><br>
+                                                <small>Različnih avtorjev</small>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <strong>@GetAverageBookAge(selectedKategorija)</strong><br>
+                                                <small>Povprečna starost knjig</small>
+                                            </div>
+                                        </div>
+
+                                        @if (selectedKategorija.Knjige.Any())
+                                        {
+                                            <hr>
+                                            <h6>📚 Najnovejše knjige:</h6>
+                                            <div class="list-group list-group-flush">
+                                                @foreach (var knjiga in selectedKategorija.Knjige.OrderByDescending(k => k.DatumIzdaje).Take(3))
+                                                {
+                                                    <div class="list-group-item p-2 border-0">
+                                                        <div class="d-flex justify-content-between align-items-start">
+                                                            <div>
+                                                                <strong class="text-primary">@knjiga.Naslov</strong>
+                                                                <br>
+                                                                <small class="text-muted">@knjiga.Avtor?.PolnoIme • @knjiga.DatumIzdaje.Year</small>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </div>
+
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" @onclick="CloseModal">
+                                <i class="fas fa-times me-1"></i> Prekliči
+                            </button>
+                            <button type="submit" class="btn btn-primary" disabled="@savingData">
+                                @if (savingData)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                }
+                                <i class="fas fa-save me-1"></i> Shrani
+                            </button>
+                        </div>
+                    </EditForm>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop fade show"></div>
+}
+
+<!-- Confirm Dialog -->
+<KnjiznicaBlazor.Components.ConfirmDialog @ref="confirmDialog" />
+
+@code {
+    private List<Kategorija> kategorije = new();
+    private List<Kategorija> filteredKategorije = new();
+    private List<DataTable<Kategorija>.TableColumn<Kategorija>> tableColumns = new();
+    private List<SearchBox.SearchSuggestion> searchSuggestions = new();
+
+    private bool loading = true;
+    private bool savingData = false;
+    private bool showModal = false;
+    private Kategorija selectedKategorija = new();
+    private string? errorMessage;
+    private string? successMessage;
+
+    // Search and filtering
+    private string globalSearchTerm = "";
+    private string sortBy = "name";
+    private string currentFilter = "";
+    private string viewMode = "cards"; // "cards" or "table"
+
+    // Pagination
+    private int currentPage = 1;
+    private int pageSize = 12; // Adjusted for card view
+
+    // Confirm dialog reference
+    private KnjiznicaBlazor.Components.ConfirmDialog? confirmDialog;
+
+    private Timer? searchTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        InitializeTableColumns();
+        await LoadKategorije();
+    }
+
+    private void InitializeTableColumns()
+    {
+        tableColumns = new List<DataTable<Kategorija>.TableColumn<Kategorija>>
+        {
+            new() {
+                Header = "Ime",
+                Template = kategorija => @<text>
+        <div class="d-flex align-items-center">
+            <div class="category-icon me-3">
+                <i class="fas fa-tag"></i>
+            </div>
+            <div>
+                <strong class="text-primary">@kategorija.Ime</strong>
+            </div>
+        </div>
+    </text>
+            },
+            new() {
+                Header = "Opis",
+                Template = kategorija => @<text>
+        @if (!string.IsNullOrEmpty(kategorija.Opis))
+    {
+    var shortDesc = kategorija.Opis.Length > 100 ? kategorija.Opis.Substring(0, 100) + "..." : kategorija.Opis;
+        <span title="@kategorija.Opis">@shortDesc</span>
+    }
+    else
+    {
+        <em class="text-muted">Ni opisa</em>
+    }
+    </text>
+            },
+            new() {
+                Header = "Število knjig",
+                Template = kategorija => @<text>
+        <span class="badge @GetBookCountBadgeClass(kategorija.Knjige.Count)">
+            @kategorija.Knjige.Count
+        </span>
+    </text>
+            },
+            new() {
+                Header = "Avtorji",
+                Template = kategorija => @<text>
+        @GetUniqueAuthorsCount(kategorija)
+    </text>
+            }
+        };
+    }
+
+    private List<KnjiznicaBlazor.Components.QuickStats.StatItem> GetQuickStats()
+    {
+        var totalCategories = kategorije.Count;
+        var withBooks = kategorije.Count(k => k.Knjige.Count > 0);
+        var withDescription = kategorije.Count(k => !string.IsNullOrEmpty(k.Opis));
+        var avgBooksPerCategory = kategorije.Any() ? (int)kategorije.Average(k => k.Knjige.Count) : 0;
+
+        return new List<KnjiznicaBlazor.Components.QuickStats.StatItem>
+        {
+            new()
+            {
+                Label = "Skupaj kategorij",
+                Value = totalCategories,
+                Icon = "fas fa-tags",
+                Type = KnjiznicaBlazor.Components.QuickStats.StatType.Primary,
+                IsClickable = true,
+                Data = "total"
+            },
+            new()
+            {
+                Label = "S knjigami",
+                Value = withBooks,
+                Icon = "fas fa-book",
+                Type = KnjiznicaBlazor.Components.QuickStats.StatType.Success,
+                ShowProgress = true,
+                ProgressMax = totalCategories,
+                IsClickable = true,
+                Data = "with-books"
+            },
+            new()
+            {
+                Label = "Z opisom",
+                Value = withDescription,
+                Icon = "fas fa-align-left",
+                Type = KnjiznicaBlazor.Components.QuickStats.StatType.Info,
+                ShowProgress = true,
+                ProgressMax = totalCategories,
+                IsClickable = true,
+                Data = "with-description"
+            },
+            new()
+            {
+                Label = "Povprečno knjig",
+                Value = avgBooksPerCategory,
+                Icon = "fas fa-chart-bar",
+                Type = KnjiznicaBlazor.Components.QuickStats.StatType.Warning,
+                Subtitle = "na kategorijo"
+            }
+        };
+    }
+
+    private async Task LoadKategorije()
+    {
+        try
+        {
+            loading = true;
+            errorMessage = null;
+            StateHasChanged();
+
+            kategorije = await KnjiznicaService.GetKategorijeAsync();
+            ApplyFilters();
+            GenerateSearchSuggestions();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Napaka pri nalaganju kategorij: {ex.Message}";
+        }
+        finally
+        {
+            loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ApplyFilters()
+    {
+        filteredKategorije = kategorije.Where(k =>
+            (string.IsNullOrEmpty(globalSearchTerm) ||
+             k.Ime.Contains(globalSearchTerm, StringComparison.OrdinalIgnoreCase) ||
+             k.Opis?.Contains(globalSearchTerm, StringComparison.OrdinalIgnoreCase) == true) &&
+
+            (string.IsNullOrEmpty(currentFilter) ||
+             (currentFilter == "popular" && k.Knjige.Count >= 3) ||
+             (currentFilter == "empty" && k.Knjige.Count == 0) ||
+             (currentFilter == "description" && !string.IsNullOrEmpty(k.Opis)) ||
+             (currentFilter == "no-description" && string.IsNullOrEmpty(k.Opis)))
+        ).ToList();
+
+        ApplySorting();
+        currentPage = 1;
+    }
+
+    private void ApplySorting()
+    {
+        filteredKategorije = sortBy switch
+        {
+            "books" => filteredKategorije.OrderByDescending(k => k.Knjige.Count).ToList(),
+            "description" => filteredKategorije.OrderBy(k => string.IsNullOrEmpty(k.Opis)).ThenBy(k => k.Ime).ToList(),
+            _ => filteredKategorije.OrderBy(k => k.Ime).ToList()
+        };
+    }
+
+    private void GenerateSearchSuggestions()
+    {
+        searchSuggestions.Clear();
+
+        // Add category names
+        searchSuggestions.AddRange(kategorije.Take(5).Select(k => new SearchBox.SearchSuggestion
+            {
+                Text = k.Ime,
+                Type = "category",
+                Category = "Kategorija"
+            }));
+
+        // Add common words from descriptions
+        var commonWords = kategorije
+            .Where(k => !string.IsNullOrEmpty(k.Opis))
+            .SelectMany(k => k.Opis!.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            .Where(w => w.Length > 4)
+            .GroupBy(w => w.ToLower())
+            .OrderByDescending(g => g.Count())
+            .Take(3)
+            .Select(g => g.Key);
+
+        searchSuggestions.AddRange(commonWords.Select(w => new SearchBox.SearchSuggestion
+            {
+                Text = w,
+                Type = "keyword",
+                Category = "Ključna beseda"
+            }));
+    }
+
+    private List<Kategorija> GetPagedItems()
+    {
+        var skip = (currentPage - 1) * pageSize;
+        return filteredKategorije.Skip(skip).Take(pageSize).ToList();
+    }
+
+    private string GetBookCountBadgeClass(int count)
+    {
+        return count switch
+        {
+            0 => "bg-secondary",
+            < 3 => "bg-warning text-dark",
+            < 10 => "bg-info",
+            _ => "bg-success"
+        };
+    }
+
+    private int GetUniqueAuthorsCount(Kategorija kategorija)
+    {
+        return kategorija.Knjige.Select(k => k.AvtorId).Distinct().Count();
+    }
+
+    private string GetAverageBookAge(Kategorija kategorija)
+    {
+        if (!kategorija.Knjige.Any()) return "N/A";
+        var avgAge = kategorija.Knjige.Average(k => DateTime.Now.Year - k.DatumIzdaje.Year);
+        return $"{avgAge:F0} let";
+    }
+
+    // Event handlers
+    private async Task OnGlobalSearch(string searchTerm)
+    {
+        globalSearchTerm = searchTerm;
+        searchTimer?.Dispose();
+        searchTimer = new Timer(async _ => await InvokeAsync(() =>
+        {
+            ApplyFilters();
+            StateHasChanged();
+        }), null, 300, Timeout.Infinite);
+    }
+
+    private async Task OnSuggestionSelected(SearchBox.SearchSuggestion suggestion)
+    {
+        globalSearchTerm = suggestion.Text;
+        ApplyFilters();
+        StateHasChanged();
+    }
+
+    private async Task OnSortChanged(ChangeEventArgs e)
+    {
+        sortBy = e.Value?.ToString() ?? "name";
+        ApplySorting();
+        StateHasChanged();
+    }
+
+    private async Task OnPageChanged(int page)
+    {
+        currentPage = page;
+        StateHasChanged();
+    }
+
+    private async Task OnPageSizeChanged(int newPageSize)
+    {
+        pageSize = newPageSize;
+        currentPage = 1;
+        StateHasChanged();
+    }
+
+    private async Task OnStatClicked(KnjiznicaBlazor.Components.QuickStats.StatItem stat)
+    {
+        var filter = stat.Data?.ToString();
+        switch (filter)
+        {
+            case "total":
+                await ClearAllFilters();
+                break;
+            case "with-books":
+                await ApplyFilter("popular");
+                break;
+            case "with-description":
+                await ApplyFilter("description");
+                break;
+        }
+    }
+
+    private async Task ApplyFilter(string filterType)
+    {
+        currentFilter = filterType;
+        globalSearchTerm = "";
+        ApplyFilters();
+        StateHasChanged();
+
+        var message = filterType switch
+        {
+            "popular" => "Prikazane so kategorije z 3 ali več knjigami",
+            "empty" => "Prikazane so prazne kategorije",
+            "description" => "Prikazane so kategorije z opisom",
+            "no-description" => "Prikazane so kategorije brez opisa",
+            _ => "Filter uporabljen"
+        };
+
+        await JSRuntime.InvokeVoidAsync("showToast", message, "info");
+    }
+
+    private async Task ClearAllFilters()
+    {
+        globalSearchTerm = "";
+        currentFilter = "";
+        sortBy = "name";
+        currentPage = 1;
+        ApplyFilters();
+        StateHasChanged();
+        await JSRuntime.InvokeVoidAsync("showToast", "Vsi filtri so bili počiščeni!", "info");
+    }
+
+    private void SetViewMode(string mode)
+    {
+        viewMode = mode;
+        pageSize = mode == "cards" ? 12 : 10;
+        currentPage = 1;
+        StateHasChanged();
+    }
+
+    private async Task OnDescriptionInput(ChangeEventArgs e)
+    {
+        var text = e.Value?.ToString() ?? "";
+        if (text.Length > 500)
+        {
+            selectedKategorija.Opis = text.Substring(0, 500);
+            StateHasChanged();
+        }
+    }
+
+    // Modal methods
+    private void ShowModal(Kategorija kategorija)
+    {
+        selectedKategorija = new Kategorija
+            {
+                Id = kategorija.Id,
+                Ime = kategorija.Ime,
+                Opis = kategorija.Opis,
+                Knjige = kategorija.Knjige
+            };
+        showModal = true;
+    }
+
+    private void CloseModal()
+    {
+        showModal = false;
+        selectedKategorija = new();
+        errorMessage = null;
+    }
+
+    private async Task SaveKategorija()
+    {
+        try
+        {
+            savingData = true;
+            StateHasChanged();
+
+            if (selectedKategorija.Id == 0)
+            {
+                await KnjiznicaService.CreateKategorijaAsync(selectedKategorija);
+                successMessage = "Kategorija je bila uspešno dodana.";
+            }
+            else
+            {
+                await KnjiznicaService.UpdateKategorijaAsync(selectedKategorija.Id, selectedKategorija);
+                successMessage = "Kategorija je bila uspešno posodobljena.";
+            }
+
+            CloseModal();
+            await LoadKategorije();
+            await JSRuntime.InvokeVoidAsync("showToast", successMessage, "success");
+        }
+        catch (HttpRequestException ex)
+        {
+            if (ex.Message.Contains("400"))
+            {
+                errorMessage = "Kategorija s tem imenom že obstaja.";
+            }
+            else
+            {
+                errorMessage = $"Napaka pri shranjevanju kategorije: {ex.Message}";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Napaka pri shranjevanju kategorije: {ex.Message}";
+        }
+        finally
+        {
+            savingData = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DeleteKategorija(Kategorija kategorija)
+    {
+        if (confirmDialog != null)
+        {
+            confirmDialog.Title = "Potrditev brisanja";
+            confirmDialog.Message = $"Ali ste prepričani, da želite izbrisati kategorijo {kategorija.Ime}?";
+            confirmDialog.Type = KnjiznicaBlazor.Components.ConfirmDialog.DialogType.Danger;
+            confirmDialog.ConfirmText = "Izbriši";
+            confirmDialog.Details = kategorija.Knjige.Any()
+                ? $"Kategorija vsebuje {kategorija.Knjige.Count} knjig. Brisanje ne bo mogoče."
+                : "Ta akcija ne bo vplivala na obstoječe knjige.";
+            confirmDialog.ShowDetails = true;
+            confirmDialog.IsConfirmEnabled = !kategorija.Knjige.Any();
+
+            confirmDialog.OnConfirm = EventCallback.Factory.Create(this, async () =>
+            {
+                try
+                {
+                    await KnjiznicaService.DeleteKategorijaAsync(kategorija.Id);
+                    successMessage = "Kategorija je bila uspešno izbrisana.";
+                    await LoadKategorije();
+                    await JSRuntime.InvokeVoidAsync("showToast", successMessage, "success");
+                }
+                catch (HttpRequestException ex)
+                {
+                    if (ex.Message.Contains("400"))
+                    {
+                        errorMessage = "Kategorije ne morete izbrisati, ker ima knjige.";
+                    }
+                    else
+                    {
+                        errorMessage = $"Napaka pri brisanju kategorije: {ex.Message}";
+                    }
+                    await JSRuntime.InvokeVoidAsync("showToast", errorMessage, "danger");
+                }
+                catch (Exception ex)
+                {
+                    errorMessage = $"Napaka pri brisanju kategorije: {ex.Message}";
+                    await JSRuntime.InvokeVoidAsync("showToast", errorMessage, "danger");
+                }
+            });
+
+            confirmDialog.Show();
+        }
+    }
+
+    public void Dispose()
+    {
+        searchTimer?.Dispose();
+    }
+}
+
+<style>
+    .category-card {
+        background: white;
+        border-radius: 0.75rem;
+        border: none;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        transition: all 0.3s ease;
+        cursor: pointer;
+        overflow: hidden;
+    }
+
+        .category-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+        }
+
+        .category-card .card-header {
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+            border-bottom: 1px solid #e5e7eb;
+            padding: 1.25rem;
+        }
+
+        .category-card .card-body {
+            padding: 1.25rem;
+        }
+
+        .category-card .card-footer {
+            padding: 1rem 1.25rem;
+            border-top: 1px solid #f3f4f6;
+        }
+
+    .category-icon {
+        width: 40px;
+        height: 40px;
+        background: linear-gradient(135deg, #3b82f6, #1e40af);
+        color: white;
+        border-radius: 0.5rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.25rem;
+    }
+
+    .book-item {
+        padding: 0.375rem 0;
+        border-bottom: 1px solid #f3f4f6;
+    }
+
+        .book-item:last-child {
+            border-bottom: none;
+        }
+
+    .badge {
+        font-size: 0.8em;
+        padding: 0.4em 0.8em;
+    }
+
+    .table td {
+        vertical-align: middle;
+    }
+
+    .modal-dialog-centered {
+        min-height: calc(100% - 1rem);
+        display: flex;
+        align-items: center;
+    }
+
+    .form-control:focus,
+    .form-select:focus {
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.25);
+    }
+
+    /* Dark mode support */
+    @@media (prefers-color-scheme: dark) {
+        .category-card
+
+    {
+        background-color: #374151;
+        color: #f9fafb;
+    }
+
+    .category-card .card-header {
+        background: linear-gradient(135deg, #4b5563 0%, #374151 100%);
+        border-bottom-color: #4b5563;
+    }
+
+    .category-card .card-footer {
+        border-top-color: #4b5563;
+    }
+
+    .book-item {
+        border-bottom-color: #4b5563;
+    }
+
+    }
+
+    /* Responsive design */
+    @@media (max-width: 768px) {
+        .modal-dialog
+
+    {
+        margin: 0.5rem;
+    }
+
+    .category-card .card-header,
+    .category-card .card-body,
+    .category-card .card-footer {
+        padding: 1rem;
+    }
+
+    .table-responsive {
+        font-size: 0.875rem;
+    }
+
+    .category-icon {
+        width: 32px;
+        height: 32px;
+        font-size: 1rem;
+    }
+
+    .btn-group .btn {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.75rem;
+    }
+
+    }
+
+    @@media (max-width: 576px) {
+        .category-card
+
+    {
+        margin-bottom: 1rem;
+    }
+
+    .d-flex.justify-content-between {
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    }
+</style>

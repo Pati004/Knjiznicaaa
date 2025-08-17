@@ -1,0 +1,227 @@
+﻿@if (IsLoading)
+{
+    <div class="loading-overlay @(Overlay ? "overlay-backdrop" : "")">
+        <div class="loading-content">
+            <div class="spinner-container">
+                @if (SpinnerType == "pulse")
+                {
+                    <div class="spinner-pulse">
+                        <div class="pulse-dot"></div>
+                        <div class="pulse-dot"></div>
+                        <div class="pulse-dot"></div>
+                    </div>
+                }
+                else if (SpinnerType == "dots")
+                {
+                    <div class="spinner-dots">
+                        <div class="dot"></div>
+                        <div class="dot"></div>
+                        <div class="dot"></div>
+                    </div>
+                }
+                else if (SpinnerType == "circle")
+                {
+                    <div class="spinner-circle">
+                        <div class="circle-path"></div>
+                    </div>
+                }
+                else
+                {
+                    <!-- Default Bootstrap spinner -->
+                    <div class="spinner-border text-primary" role="status" style="width: @Size; height: @Size;">
+                        <span class="visually-hidden">@LoadingText</span>
+                    </div>
+                }
+            </div>
+            
+            @if (!string.IsNullOrEmpty(LoadingText))
+            {
+                <div class="loading-text mt-3">
+                    <p class="text-muted mb-0">@LoadingText</p>
+                    @if (ShowProgress && Progress > 0)
+                    {
+                        <div class="progress mt-2" style="height: 4px;">
+                            <div class="progress-bar" role="progressbar" 
+                                 style="width: @(Progress)%" 
+                                 aria-valuenow="@Progress" 
+                                 aria-valuemin="0" 
+                                 aria-valuemax="100">
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsLoading { get; set; } = false;
+    [Parameter] public string LoadingText { get; set; } = "Nalaganje...";
+    [Parameter] public string SpinnerType { get; set; } = "bootstrap"; // bootstrap, pulse, dots, circle
+    [Parameter] public string Size { get; set; } = "3rem";
+    [Parameter] public bool Overlay { get; set; } = false;
+    [Parameter] public bool ShowProgress { get; set; } = false;
+    [Parameter] public int Progress { get; set; } = 0;
+}
+
+<style>
+    .loading-overlay {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 200px;
+        position: relative;
+    }
+
+    .overlay-backdrop {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(255, 255, 255, 0.9);
+        z-index: 9999;
+        backdrop-filter: blur(2px);
+    }
+
+    .loading-content {
+        text-align: center;
+        padding: 2rem;
+    }
+
+    .spinner-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+
+    /* Pulse Spinner */
+    .spinner-pulse {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .pulse-dot {
+        width: 12px;
+        height: 12px;
+        background-color: #3b82f6;
+        border-radius: 50%;
+        animation: pulse 1.4s ease-in-out infinite both;
+    }
+
+    .pulse-dot:nth-child(1) { animation-delay: -0.32s; }
+    .pulse-dot:nth-child(2) { animation-delay: -0.16s; }
+
+    @@keyframes pulse {
+        0%, 80%, 100% {
+            transform: scale(0);
+            opacity: 0.5;
+        }
+        40% {
+            transform: scale(1);
+            opacity: 1;
+        }
+    }
+
+    /* Dots Spinner */
+    .spinner-dots {
+        display: flex;
+        gap: 0.3rem;
+    }
+
+    .dot {
+        width: 8px;
+        height: 8px;
+        background-color: #3b82f6;
+        border-radius: 50%;
+        animation: bounce 1.4s ease-in-out infinite both;
+    }
+
+    .dot:nth-child(1) { animation-delay: -0.32s; }
+    .dot:nth-child(2) { animation-delay: -0.16s; }
+
+    @@keyframes bounce {
+        0%, 80%, 100% {
+            transform: scale(0);
+        }
+        40% {
+            transform: scale(1);
+        }
+    }
+
+    /* Circle Spinner */
+    .spinner-circle {
+        width: 40px;
+        height: 40px;
+        position: relative;
+    }
+
+    .circle-path {
+        width: 100%;
+        height: 100%;
+        border: 3px solid #e5e7eb;
+        border-top-color: #3b82f6;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+
+    @@keyframes spin {
+        to {
+            transform: rotate(360deg);
+        }
+    }
+
+    .loading-text {
+        max-width: 300px;
+        margin: 0 auto;
+    }
+
+    .progress {
+        background-color: #e5e7eb;
+        border-radius: 2px;
+        overflow: hidden;
+    }
+
+    .progress-bar {
+        background: linear-gradient(90deg, #3b82f6, #1e40af);
+        transition: width 0.3s ease;
+    }
+
+    /* Dark mode support */
+    @@media (prefers-color-scheme: dark) {
+        .overlay-backdrop {
+            background-color: rgba(31, 41, 55, 0.9);
+        }
+
+        .pulse-dot, .dot {
+            background-color: #60a5fa;
+        }
+
+        .circle-path {
+            border-color: #4b5563;
+            border-top-color: #60a5fa;
+        }
+
+        .progress {
+            background-color: #4b5563;
+        }
+    }
+
+    /* Responsive adjustments */
+    @@media (max-width: 768px) {
+        .loading-content {
+            padding: 1rem;
+        }
+
+        .spinner-circle {
+            width: 32px;
+            height: 32px;
+        }
+
+        .pulse-dot, .dot {
+            width: 10px;
+            height: 10px;
+        }
+    }
+</style>

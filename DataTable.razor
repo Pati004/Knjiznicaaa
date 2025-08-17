@@ -1,0 +1,78 @@
+﻿@typeparam TItem
+
+<div class="table-responsive">
+    <table class="table table-striped table-hover">
+        <thead class="table-dark">
+            <tr>
+                @foreach (var column in Columns)
+                {
+                    <th scope="col">@column.Header</th>
+                }
+                @if (ShowActions)
+                {
+                    <th scope="col" style="width: 200px;">Akcije</th>
+                }
+            </tr>
+        </thead>
+        <tbody>
+            @if (Items?.Any() == true)
+            {
+                @foreach (var item in Items)
+                {
+                    <tr>
+                        @foreach (var column in Columns)
+                        {
+                            <td>@column.Template(item)</td>
+                        }
+                        @if (ShowActions)
+                        {
+                            <td>
+                                <div class="btn-group" role="group">
+                                    @if (OnEdit.HasDelegate)
+                                    {
+                                        <button class="btn btn-sm btn-outline-primary"
+                                                @onclick="() => OnEdit.InvokeAsync(item)"
+                                                title="Uredi">
+                                            <i class="fas fa-edit"></i>
+                                        </button>
+                                    }
+                                    @if (OnDelete.HasDelegate)
+                                    {
+                                        <button class="btn btn-sm btn-outline-danger"
+                                                @onclick="() => OnDelete.InvokeAsync(item)"
+                                                title="Izbriši">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    }
+                                </div>
+                            </td>
+                        }
+                    </tr>
+                }
+            }
+            else
+            {
+                <tr>
+                    <td colspan="@(Columns.Count + (ShowActions ? 1 : 0))" class="text-center text-muted py-4">
+                        @EmptyMessage
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@code {
+    [Parameter] public IEnumerable<TItem>? Items { get; set; }
+    [Parameter] public List<TableColumn<TItem>> Columns { get; set; } = new();
+    [Parameter] public bool ShowActions { get; set; } = true;
+    [Parameter] public string EmptyMessage { get; set; } = "Ni podatkov za prikaz.";
+    [Parameter] public EventCallback<TItem> OnEdit { get; set; }
+    [Parameter] public EventCallback<TItem> OnDelete { get; set; }
+
+    public class TableColumn<T>
+    {
+        public string Header { get; set; } = string.Empty;
+        public RenderFragment<T> Template { get; set; } = item => builder => { };
+    }
+}

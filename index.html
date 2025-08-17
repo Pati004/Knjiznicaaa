@@ -1,0 +1,108 @@
+﻿<!DOCTYPE html>
+<html lang="sl">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Knjižnica Management System</title>
+    <base href="/" />
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js" type="module"></script>
+
+    <!-- Bootstrap CSS - CDN -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+
+    <!-- Local CSS -->
+    <link href="css/app.css" rel="stylesheet" />
+
+    <style>
+        .loading-container {
+            min-height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+        }
+
+        .loading-spinner {
+            width: 3rem;
+            height: 3rem;
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div id="app">
+        <div class="loading-container">
+            <div class="loading-spinner"></div>
+            <h5 style="margin-top: 20px;">Knjižnica se nalaga...</h5>
+        </div>
+    </div>
+
+    <div id="blazor-error-ui">
+        <div class="alert alert-danger d-flex align-items-center" role="alert">
+            <i class="fas fa-exclamation-triangle me-2"></i>
+            <div>
+                <strong>Napaka aplikacije:</strong> Prišlo je do nepričakovane napake.
+                <br>
+                <a href="" class="alert-link">Ponovno naloži stran</a> ali
+                <a class="alert-link dismiss">skrij to sporočilo</a>.
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <!-- Bootstrap JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+
+    <!-- Chart.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.3.0/chart.min.js"></script>
+
+    <!-- Local JavaScript -->
+    <script src="js/charts.js"></script>
+
+    <!-- Global functions -->
+    <script>
+        window.confirmDialog = function (message, title) {
+            return confirm(message || 'Ali ste prepričani?');
+        };
+
+        window.showToast = function (message, type, duration) {
+            console.log('Toast:', type, message);
+            // Simple alert for now
+            if (type === 'danger' || type === 'error') {
+                alert('Napaka: ' + message);
+            }
+        };
+
+        window.copyToClipboard = function (text) {
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(text);
+            }
+        };
+    </script>
+
+    <!-- Blazor -->
+    <script src="_framework/blazor.webassembly.js"></script>
+</body>
+
+</html>
